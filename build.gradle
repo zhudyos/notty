@@ -1,0 +1,189 @@
+buildscript {
+    ext {
+        kotlinVersion = "1.2.60"
+        springBootVersion = "2.0.4.RELEASE"
+    }
+
+    repositories {
+        mavenLocal()
+        mavenCentral()
+    }
+
+    dependencies {
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlinVersion"
+        classpath "org.jetbrains.kotlin:kotlin-allopen:$kotlinVersion"
+        classpath "org.springframework.boot:spring-boot-gradle-plugin:$springBootVersion"
+        classpath "com.bmuschko:gradle-docker-plugin:3.2.1"
+    }
+}
+
+plugins {
+    id "net.researchgate.release" version "2.6.0"
+    id "com.moowork.node" version "1.2.0"
+    id "net.ltgt.apt" version "0.10"
+    id "com.github.hierynomus.license" version "0.14.0"
+}
+
+apply plugin: "java"
+apply plugin: "maven"
+apply plugin: "idea"
+apply plugin: "jacoco"
+apply plugin: "kotlin"
+apply plugin: "kotlin-spring"
+apply plugin: "org.springframework.boot"
+apply plugin: "com.github.hierynomus.license"
+apply plugin: "com.bmuschko.docker-remote-api"
+
+group "io.zhudy.notty"
+
+repositories {
+    mavenLocal()
+    mavenCentral()
+}
+
+dependencies {
+    compile "org.jetbrains.kotlin:kotlin-stdlib-jdk8"
+    compile "org.jetbrains.kotlin:kotlin-reflect"
+
+    compile("org.springframework.boot:spring-boot-starter-webflux:$springBootVersion") {
+        exclude module: "hibernate-validator"
+        exclude module: "nio-multipart-parser"
+    }
+    compile "io.netty:netty-transport-native-epoll:4.1.22.Final:linux-x86_64"
+    compile "org.mongodb:mongodb-driver-reactivestreams:1.9.0"
+
+    compile "com.fasterxml.jackson.module:jackson-module-kotlin:2.9.6"
+    compile "com.fasterxml.jackson.datatype:jackson-datatype-joda:2.9.6"
+    compile "joda-time:joda-time:2.9.9"
+}
+
+[compileJava, compileTestJava, javadoc]*.options*.encoding = "UTF-8"
+
+compileKotlin {
+    kotlinOptions.jvmTarget = "1.8"
+}
+
+compileTestKotlin {
+    kotlinOptions.jvmTarget = "1.8"
+}
+compileJava.dependsOn(processResources)
+
+bootJar {
+    manifest {
+        attributes "Implementation-Title": "duic", "Implementation-Version": project.version
+    }
+}
+
+license {
+    headerURI = com.hierynomus.gradle.license.LicenseBasePlugin.class.getClassLoader().getResource("headers/Apache-2.0").toURI()
+    mapping([
+            "vue": "XML_STYLE"
+    ])
+    ext {
+        year = "2018-${Calendar.getInstance().get(Calendar.YEAR)}"
+        author = "the original author or authors"
+    }
+}
+
+task licenseFormatWeb(type: com.hierynomus.gradle.license.tasks.LicenseFormat) {
+    group = "license"
+    source = fileTree(project.projectDir).include(
+            "buildSrc/*.js",
+            "src/main/web/**/*.vue",
+            "src/main/web/**/*.html",
+            "src/main/web/**/*.js"
+    )
+}
+licenseFormat.dependsOn licenseFormatWeb
+
+tasks.withType(com.hierynomus.gradle.license.tasks.LicenseCheck) {
+    it.enabled = false
+}
+
+test {
+    testLogging {
+        exceptionFormat "full"
+    }
+    exclude "**/Oracle*RepositoryTests*"
+}
+
+jacoco {
+    toolVersion = '0.7.9'
+}
+
+jacocoTestReport {
+    reports {
+        xml.enabled = true
+        html.enabled = true
+        html.destination file("${buildDir}/jacocoHtml")
+    }
+}
+jacocoTestReport.dependsOn test
+
+task sourcesJar(type: Jar, dependsOn: classes) {
+    classifier = "sources"
+    from sourceSets.main.allSource
+}
+
+artifacts {
+    archives sourcesJar
+}
+
+node {
+    version = "8.9.4"
+    yarnVersion = "1.7.0"
+    download = true
+}
+
+task buildAdmin(type: YarnTask, dependsOn: yarn) {
+    group = "node"
+    args = ["run", "build"]
+}
+
+task copyAdminFiles(type: Copy, dependsOn: buildAdmin) {
+    group = "node"
+    from "dist/dist"
+    include "**/**"
+    into "${project.buildDir}/resources/main/public-web-resources"
+}
+bootJar.dependsOn copyAdminFiles
+
+task copyDockerJar(type: Copy, dependsOn: build) {
+    group = "docker"
+    from jar.archivePath.path
+    into "${project.buildDir}/docker"
+    rename { String fileName ->
+        fileName.replace("-${project.version}", "")
+    }
+}
+
+task createDockerfile(type: com.bmuschko.gradle.docker.tasks.image.Dockerfile, dependsOn: copyDockerJar) {
+    group = "docker"
+    def jarName = "${project.name}.jar".toString()
+    destFile = project.file("${project.buildDir}/docker/Dockerfile")
+
+    from "openjdk:8u171-jre-slim-stretch"
+    maintainer "Kevin Zou <kevinz@weghst.com>"
+    copyFile(jarName, "/app/$jarName".toString())
+    workingDir("/app")
+    volume("/app/logs")
+    environmentVariable("TZ", "Asia/Shanghai") // 默认时区设置为东8区
+    environmentVariable([
+            JVM_OPTS : "-Xms1g -Xmx1g -XX:MetaspaceSize=128m",
+            JAVA_OPTS: "-server -XX:+UseG1GC \$JVM_OPTS -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=logs/ -XX:+PrintGCDateStamps -verbose:gc -XX:+PrintGCDetails -Xloggc:logs/gc.log"
+    ])
+    environmentVariable("DUIC_OPTS", "-Dspring.profiles.active=mongodb")
+    exposePort(7777)
+    defaultCommand("sh", "-c", "java \$JAVA_OPTS \$DUIC_OPTS -jar $jarName")
+}
+
+task buildImage(type: com.bmuschko.gradle.docker.tasks.image.DockerBuildImage, dependsOn: createDockerfile) {
+    group = "docker"
+    inputDir = createDockerfile.destFile.parentFile
+    tags = ["zhudyos/${project.name}:${project.version}".toString(), "zhudyos/${project.name}:latest".toString()]
+}
+
+task copyRelease(type: Copy) {
+    from jar.archivePath.path
+    into "${project.buildDir}/releases"
+}
