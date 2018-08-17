@@ -51,6 +51,7 @@ dependencies {
     }
     compile "io.netty:netty-transport-native-epoll:4.1.22.Final:linux-x86_64"
     compile "org.mongodb:mongodb-driver-reactivestreams:1.9.0"
+    compile "io.lettuce:lettuce-core:5.0.5.RELEASE"
 
     compile "com.fasterxml.jackson.module:jackson-module-kotlin:2.9.6"
     compile "com.fasterxml.jackson.datatype:jackson-datatype-joda:2.9.6"
@@ -70,7 +71,7 @@ compileJava.dependsOn(processResources)
 
 bootJar {
     manifest {
-        attributes "Implementation-Title": "duic", "Implementation-Version": project.version
+        attributes "Implementation-Title": "notty", "Implementation-Version": project.version
     }
 }
 
