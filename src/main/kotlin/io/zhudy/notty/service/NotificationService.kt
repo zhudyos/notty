@@ -7,12 +7,15 @@ import io.lettuce.core.pubsub.RedisPubSubAdapter
 import io.zhudy.notty.RedisKeys
 import io.zhudy.notty.domain.CbMethod
 import io.zhudy.notty.domain.Task
+import io.zhudy.notty.domain.TaskCallLog
+import io.zhudy.notty.repository.NotFoundTaskException
 import io.zhudy.notty.repository.TaskRepository
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import org.springframework.web.reactive.function.client.WebClient
 import org.springframework.web.reactive.function.client.body
 import reactor.core.publisher.Mono
+import java.net.UnknownHostException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.locks.ReentrantLock
 import javax.annotation.PostConstruct
@@ -74,33 +77,7 @@ class NotificationService(
                         limit,
                         minDelayMs)
                         .flatMap(::findById)
-                        .flatMap {
-                            val client = when (it.cbMethod) {
-                                CbMethod.GET -> webClient.get()
-                                CbMethod.POST -> {
-                                    val p = webClient.post()
-                                    if (it.cbData != null) {
-                                        if (it.cbContentType.isNotEmpty()) {
-                                            p.header("content-type", it.cbContentType)
-                                        } else {
-                                            p.header("content-type", "application/json; charset=utf-8")
-                                        }
-                                        p.body(Mono.just(it.cbData))
-                                    }
-
-                                    p
-                                }
-                            }
-
-                            client.uri(it.cbUrl)
-                                    .header("x-notty-taskid", it.id)
-                                    .exchange()
-                                    .doOnError {
-                                        // 添加日志
-                                    }
-
-                            Mono.empty()
-                        }
+                        .flatMap(::callRemote)
 
                 // FIXME 时间差
             } catch (e: Exception) {
@@ -110,9 +87,67 @@ class NotificationService(
         shutdownCond.signal()
     }
 
+    // 优先查询从库，如果从库没有查询到则去主库查询，解决新任务主从同步因时间差查询不到任务的场景
     private fun findById(id: String) = taskRepository.findById(id)
+            .onErrorResume(NotFoundTaskException::class.java) {
+                taskRepository.findById4Primary(id)
+            }
 
-//    private fun callErr(task: Task, t: Throwable)
+    private fun callRemote(task: Task) = Mono.create<TaskCallLog> { sink ->
+        val client = when (task.cbMethod) {
+            CbMethod.GET -> webClient.get()
+            CbMethod.POST -> {
+                val p = webClient.post()
+                if (task.cbData != null) {
+                    if (task.cbContentType.isNotEmpty()) {
+                        p.header("content-type", task.cbContentType)
+                    } else {
+                        p.header("content-type", "application/json; charset=utf-8")
+                    }
+                    p.body(Mono.just(task.cbData))
+                }
+                p
+            }
+        }
+
+        client.uri(task.cbUrl)
+                .header("x-notty-taskid", task.id)
+                .exchange()
+                .zipWhen {
+                    it.bodyToMono(String::class.java)
+                }.doOnSuccessOrError { t, u ->
+                    val res = t.t1
+                    val taskCallLog = if (res != null) {
+                        val status = res.statusCode()
+                        TaskCallLog(
+                                taskId = task.id,
+                                n = task.retryCount + 1,
+                                httpHeaders = res.headers().asHttpHeaders().toString(),
+                                httpStatus = status.value(),
+                                httpBody = t.t2 ?: "",
+                                success = status.is2xxSuccessful,
+                                createdAt = System.currentTimeMillis()
+                        )
+                    } else {
+                        // FIXME 错误异常映射
+                        val reason = if (u is UnknownHostException) {
+                            u.message
+                        } else {
+                            u.message
+                        } ?: u.javaClass.canonicalName
+
+                        TaskCallLog(
+                                taskId = task.id,
+                                n = task.retryCount + 1,
+                                success = false,
+                                reason = reason,
+                                createdAt = System.currentTimeMillis()
+                        )
+                    }
+
+                    sink.success(taskCallLog)
+                }.subscribe()
+    }
 
     private fun subscribeNewTask() {
         val pubSub = redisClient.connectPubSub()
