@@ -1,7 +1,10 @@
 package io.zhudy.notty
 
 /**
- * @author Kevin Zou (yong.zou@2339.com)
+ * @author Kevin Zou (kevinz@weghst.com)
  */
 class NottyProps {
+
+
+
 }

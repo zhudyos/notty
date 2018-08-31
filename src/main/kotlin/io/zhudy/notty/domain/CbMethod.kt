@@ -3,7 +3,7 @@ package io.zhudy.notty.domain
 /**
  * 回调支持的方法。
  *
- * @author Kevin Zou (yong.zou@2339.com)
+ * @author Kevin Zou (kevinz@weghst.com)
  */
 enum class CbMethod {
     /**

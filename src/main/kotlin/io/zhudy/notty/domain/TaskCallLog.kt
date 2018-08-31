@@ -12,7 +12,7 @@ package io.zhudy.notty.domain
  * @property reason 结果说明
  * @property createdAt 通知返回时间
  *
- * @author Kevin Zou (yong.zou@2339.com)
+ * @author Kevin Zou (kevinz@weghst.com)
  */
 data class TaskCallLog(
         val taskId: String,

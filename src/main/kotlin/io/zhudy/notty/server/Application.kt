@@ -17,10 +17,11 @@ import org.springframework.boot.context.properties.ConfigurationProperties
 import org.springframework.boot.runApplication
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.ComponentScan
+import org.springframework.context.support.PropertySourcesPlaceholderConfigurer
 
 /**
  *
- * @author Kevin Zou (yong.zou@2339.com)
+ * @author Kevin Zou (kevinz@weghst.com)
  */
 @SpringBootApplication(exclude = [
     MongoReactiveAutoConfiguration::class,
@@ -36,14 +37,24 @@ import org.springframework.context.annotation.ComponentScan
 class Application {
 
     @Bean
+    fun kotlinPropertyConfigurer() = PropertySourcesPlaceholderConfigurer().apply {
+        setPlaceholderPrefix("%{")
+        setTrimValues(true)
+        setIgnoreUnresolvablePlaceholders(true)
+    }
+
+    @Bean
     @ConfigurationProperties("notty")
     fun nottyProps() = NottyProps()
 
     @Bean
-    fun mongoClient(@Value("notty.mongodb.uri") uri: String) = MongoClients.create(uri)!!
+    fun mongoClient(@Value("%{notty.mongodb.uri}") uri: String) = MongoClients.create(uri)!!
 
     @Bean(destroyMethod = "shutdown")
-    fun redisClient(@Value("notty.redis.uri") uri: String) = RedisClient.create(uri)!!
+    fun redisClient(@Value("%{notty.redis.uri}") uri: String) = RedisClient.create(uri)!!
+
+    @Bean(destroyMethod = "close")
+    fun redisPubSub(redisClient: RedisClient) = redisClient.connectPubSub()!!
 
     @Bean(destroyMethod = "close")
     fun redisConn(redisClient: RedisClient) = redisClient.connect()!!

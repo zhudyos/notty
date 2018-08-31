@@ -3,6 +3,10 @@ package io.zhudy.notty.repository
 import com.mongodb.ReadPreference
 import com.mongodb.client.model.Filters.eq
 import com.mongodb.client.model.FindOneAndUpdateOptions
+import com.mongodb.client.model.IndexModel
+import com.mongodb.client.model.IndexOptions
+import com.mongodb.client.model.Indexes.ascending
+import com.mongodb.client.model.Indexes.descending
 import com.mongodb.client.model.ReturnDocument
 import com.mongodb.client.model.Updates.*
 import com.mongodb.reactivestreams.client.MongoClient
@@ -13,12 +17,15 @@ import io.zhudy.notty.domain.TaskCallLog
 import io.zhudy.notty.domain.TaskStatus
 import org.bson.Document
 import org.bson.types.ObjectId
+import org.joda.time.LocalDate
+import org.springframework.stereotype.Repository
 import reactor.core.publisher.Mono
 import reactor.core.publisher.toMono
 
 /**
- * @author Kevin Zou (yong.zou@2339.com)
+ * @author Kevin Zou (kevinz@weghst.com)
  */
+@Repository
 class TaskRepository(
         private val mongoClient: MongoClient
 ) {
@@ -28,6 +35,51 @@ class TaskRepository(
     private val taskFailColl get() = db.getCollection("task_fail")
     private val taskSuccessColl get() = db.getCollection("task_success")
     private val taskCallLogColl get() = db.getCollection("task_call_log")
+
+    init {
+        val indexes = listOf(
+                IndexModel(ascending("service_name"), IndexOptions().background(true)),
+                IndexModel(ascending("sid"), IndexOptions().background(true)),
+                IndexModel(ascending("cb_url"), IndexOptions().background(true)),
+                IndexModel(descending("created_at"), IndexOptions().background(true))
+        )
+
+        taskColl.createIndexes(indexes).toMono().subscribe()
+        taskFailColl.createIndexes(indexes).toMono().subscribe()
+        taskSuccessColl.createIndexes(indexes).toMono().subscribe()
+
+        taskCallLogColl.createIndexes(listOf(
+                IndexModel(ascending("task_id"), IndexOptions().background(true)),
+                IndexModel(ascending("created_at"), IndexOptions().background(true))
+        ))
+    }
+
+    /**
+     * 保存新任务。
+     */
+    fun insert(task: Task): Mono<String> {
+        val date = LocalDate.now().toString("yyyyMMdd")
+        val id = ObjectId().toString()
+
+        val doc = Document(
+                mapOf(
+                        "_id" to "$date$id",
+                        "service_name" to task.serviceName,
+                        "sid" to task.sid,
+                        "cb_url" to task.cbUrl,
+                        "cb_method" to task.cbMethod.name,
+                        "cb_content_type" to task.cbContentType,
+                        "cb_data" to task.cbData,
+                        "cb_delay" to task.cbDelay,
+                        "retry_count" to task.retryCount,
+                        "retry_max_count" to task.retryMaxCount,
+                        "status" to TaskStatus.PROCESSING.status,
+                        "created_at" to System.currentTimeMillis()
+                )
+        )
+
+        return taskColl.insertOne(doc).toMono().map { id }
+    }
 
     /**
      * 根据ID查询任务。
@@ -105,17 +157,18 @@ class TaskRepository(
                 }.doOnError {
                     session.abortTransaction()
                 }
-            }
+            }!!
 
     private fun findById(coll: MongoCollection<Document>, id: String) = coll.find(eq("_id", id))
             .first()
             .toMono()
-            .switchIfEmpty(Mono.create {
-                it.error(throw NotFoundTaskException(id))
+            .switchIfEmpty(Mono.defer {
+                throw NotFoundTaskException(id)
             })
             .map {
                 Task(
                         id = id,
+                        sid = it.getString("sid") ?: "",
                         serviceName = it.getString("service_name"),
                         cbUrl = it.getString("cb_url"),
                         cbMethod = CbMethod.valueOf(it.getString("cb_method")),

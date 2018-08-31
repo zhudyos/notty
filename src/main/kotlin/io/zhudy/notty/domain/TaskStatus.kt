@@ -6,7 +6,7 @@ package io.zhudy.notty.domain
  * @property status 状态值
  * @property isEnd 是否为终态
  *
- * @author Kevin Zou (yong.zou@2339.com)
+ * @author Kevin Zou (kevinz@weghst.com)
  */
 enum class TaskStatus(
         val status: Int,

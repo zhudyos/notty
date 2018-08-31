@@ -1,0 +1,95 @@
+openapi: 3.0.0
+servers:
+  - description: Local Notty Server
+    url: http://127.0.0.1:7778/api/v1
+
+info:
+  description: Notty 通知回调服务 API
+  version: 1.0.0
+  title: Notty 通知回调服务
+  contact:
+    email: kevinz@weghst.com
+  license:
+    name: Apache 2.0
+    url: http://www.apache.org/licenses/LICENSE-2.0.html
+
+paths:
+  /tasks:
+    post:
+      summary: 提交新的通知任务
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                service_name:
+                  type: string
+                  description: 调用的服务名称
+                sid:
+                  type: string
+                  description: 业务方ID，用于追踪通知任务状态
+                cb_url:
+                  type: string
+                  description: 回调URL
+                cb_method:
+                  type: string
+                  description: 回调方法
+                  enum:
+                    - GET
+                    - POST
+                cb_content_type:
+                  type: string
+                  description: 回调的 content-type
+                  default: application/json; charset=utf-8
+                cb_data:
+                  type: object
+                  description: 回调的请求数据
+                cb_delay:
+                  type: integer
+                  description: 首次回调延迟时间（秒）
+                retry_max_count:
+                  type: integer
+                  description: 重试回调的最大次数
+                  default: 99
+                  maximum: 999
+              example:
+                service_name: hello
+                sid: 5d41402abc4b2a76b9719d911017c592
+                cb_url: https://cb.task/
+                cb_method: POST
+                cb_data:
+                  field1: first
+                  field2: second
+              required:
+                - service_name
+                - sid
+                - cb_url
+                - cb_method
+      responses:
+        200:
+          description: 成功返回任务ID
+          content:
+            application/json:
+              schema:
+                properties:
+                  id:
+                    type: string
+                    description: 任务ID
+                    example: 201807315d41402abc4b2a76b9719d911017c592
+                required:
+                  - id
+components:
+  schemas:
+    ErrorRes:
+      properties:
+        code:
+          type: integer
+          description: 业务错误码
+        message:
+          type: string
+          description: 错误描述
+      required:
+        - code
+        - message

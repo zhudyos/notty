@@ -1,8 +1,12 @@
 server:
   port: 7778
 
-notty:
-  mongodb:
-    uri: mongodb://192.168.31.249:6379/
-  redis:
-    uri: redis://192.168.31.249.6379/
+spring:
+  reactor:
+    stacktrace-mode:
+      enabled: true
+  jackson:
+    default-property-inclusion: non_default
+    date-format: yyyy-MM-dd'T'HH:mm:ss
+    joda-date-time-format: yyyy-MM-dd'T'HH:mm:ss
+    property-naming-strategy: SNAKE_CASE
