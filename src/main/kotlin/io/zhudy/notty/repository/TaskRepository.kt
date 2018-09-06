@@ -17,10 +17,11 @@ import io.zhudy.notty.domain.TaskCallLog
 import io.zhudy.notty.domain.TaskStatus
 import org.bson.Document
 import org.bson.types.ObjectId
-import org.joda.time.LocalDate
 import org.springframework.stereotype.Repository
 import reactor.core.publisher.Mono
 import reactor.core.publisher.toMono
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 
 /**
  * @author Kevin Zou (kevinz@weghst.com)
@@ -35,6 +36,7 @@ class TaskRepository(
     private val taskFailColl get() = db.getCollection("task_fail")
     private val taskSuccessColl get() = db.getCollection("task_success")
     private val taskCallLogColl get() = db.getCollection("task_call_log")
+    private val dtf = DateTimeFormatter.ofPattern("yyyyMMdd")
 
     init {
         val indexes = listOf(
@@ -58,12 +60,12 @@ class TaskRepository(
      * 保存新任务。
      */
     fun insert(task: Task): Mono<String> {
-        val date = LocalDate.now().toString("yyyyMMdd")
+        val prefix = LocalDate.now().format(dtf)
         val id = ObjectId().toString()
 
         val doc = Document(
                 mapOf(
-                        "_id" to "$date$id",
+                        "_id" to "$prefix$id",
                         "service_name" to task.serviceName,
                         "sid" to task.sid,
                         "cb_url" to task.cbUrl,

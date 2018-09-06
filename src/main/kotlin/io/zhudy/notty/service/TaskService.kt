@@ -5,11 +5,11 @@ import io.lettuce.core.pubsub.StatefulRedisPubSubConnection
 import io.zhudy.notty.RedisKeys
 import io.zhudy.notty.domain.Task
 import io.zhudy.notty.repository.TaskRepository
-import io.zhudy.notty.utils.TimeUtils
 import io.zhudy.notty.vo.NewTaskVo
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import reactor.core.publisher.Mono
+import java.time.Instant
 
 /**
  * @author Kevin Zou (kevinz@weghst.com)
@@ -40,7 +40,7 @@ class TaskService(
         )
 
         return taskRepository.insert(task).flatMap { id ->
-            val score = TimeUtils.unixTime() + task.cbDelay
+            val score = Instant.now().epochSecond + task.cbDelay
             redisConn.reactive().zadd(RedisKeys.TASK_QUEUE, score.toDouble(), id)
                     .doFinally {
                         // 发布通知处理任务

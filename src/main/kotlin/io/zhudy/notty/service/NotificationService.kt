@@ -12,7 +12,6 @@ import io.zhudy.notty.domain.Task
 import io.zhudy.notty.domain.TaskCallLog
 import io.zhudy.notty.repository.NotFoundTaskException
 import io.zhudy.notty.repository.TaskRepository
-import io.zhudy.notty.utils.TimeUtils
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import org.springframework.web.reactive.function.client.WebClient
@@ -20,6 +19,7 @@ import org.springframework.web.reactive.function.client.body
 import reactor.core.publisher.Mono
 import reactor.core.publisher.toMono
 import java.net.UnknownHostException
+import java.time.Instant
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.locks.ReentrantLock
 import javax.annotation.PostConstruct
@@ -49,7 +49,7 @@ class NotificationService(
     private val shutdownCond = lock.newCondition()
 
     private val perTaskMax = 5
-    private val defaultAccSec = 5
+    private val minDelaySec = 5
 
     private val pullTaskScriptSha by lazy {
         val os = NotificationService::class.java.getResourceAsStream("/redis/pull_task.lua")
@@ -82,16 +82,16 @@ class NotificationService(
     private fun execute() {
         val conn = redisClient.connect()
         val limitStr = perTaskMax.toString()
-        val defaultAccSecStr = defaultAccSec.toString()
+        val minDelaySecStr = minDelaySec.toString()
         while (done) {
             try {
                 val ids = conn.reactive().evalsha<String>(
                         pullTaskScriptSha,
                         ScriptOutputType.VALUE,
                         arrayOf(RedisKeys.TASK_QUEUE),
-                        TimeUtils.unixTime().toString(),
+                        Instant.now().epochSecond.toString(),
                         limitStr,
-                        defaultAccSecStr)
+                        minDelaySecStr)
                         .collectList()
                         .block()
 
@@ -102,7 +102,7 @@ class NotificationService(
                     val waitSec = if (sv == null) {
                         30
                     } else {
-                        (sv.score - TimeUtils.unixTime()).toLong()
+                        (sv.score - Instant.now().epochSecond).toLong()
                     }
 
                     try {
@@ -157,7 +157,7 @@ class NotificationService(
 
                     comm.zaddincr(
                             RedisKeys.TASK_QUEUE,
-                            (nextSec - defaultAccSec).toDouble(),
+                            (nextSec - minDelaySec).toDouble(),
                             id
                     ).subscribe()
                 }
