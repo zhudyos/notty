@@ -1,6 +1,6 @@
 buildscript {
     ext {
-        kotlinVersion = "1.2.60"
+        kotlinVersion = "1.2.61"
         springBootVersion = "2.0.4.RELEASE"
     }
 
@@ -54,8 +54,6 @@ dependencies {
     compile "io.lettuce:lettuce-core:5.0.5.RELEASE"
 
     compile "com.fasterxml.jackson.module:jackson-module-kotlin:2.9.6"
-    compile "com.fasterxml.jackson.datatype:jackson-datatype-joda:2.9.6"
-    compile "joda-time:joda-time:2.9.9"
 }
 
 [compileJava, compileTestJava, javadoc]*.options*.encoding = "UTF-8"
