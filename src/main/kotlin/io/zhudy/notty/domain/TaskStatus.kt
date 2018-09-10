@@ -18,6 +18,10 @@ enum class TaskStatus(
      */
     PROCESSING(status = 1, isEnd = false),
     /**
+     * 取消的任务。
+     */
+    CANCEL(status = 7, isEnd = true),
+    /**
      * 成功的任务。
      */
     SUCCEEDED(status = 8, isEnd = true),

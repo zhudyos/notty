@@ -2,12 +2,10 @@ package io.zhudy.notty.repository
 
 import com.mongodb.ReadPreference
 import com.mongodb.client.model.Filters.eq
-import com.mongodb.client.model.FindOneAndUpdateOptions
 import com.mongodb.client.model.IndexModel
 import com.mongodb.client.model.IndexOptions
 import com.mongodb.client.model.Indexes.ascending
 import com.mongodb.client.model.Indexes.descending
-import com.mongodb.client.model.ReturnDocument
 import com.mongodb.client.model.Updates.*
 import com.mongodb.reactivestreams.client.MongoClient
 import com.mongodb.reactivestreams.client.MongoCollection
@@ -33,8 +31,6 @@ class TaskRepository(
 
     private val db get() = mongoClient.getDatabase("notty")
     private val taskColl get() = db.getCollection("task")
-    private val taskFailColl get() = db.getCollection("task_fail")
-    private val taskSuccessColl get() = db.getCollection("task_success")
     private val taskCallLogColl get() = db.getCollection("task_call_log")
     private val dtf = DateTimeFormatter.ofPattern("yyyyMMdd")
 
@@ -45,15 +41,12 @@ class TaskRepository(
                 IndexModel(ascending("cb_url"), IndexOptions().background(true)),
                 IndexModel(descending("created_at"), IndexOptions().background(true))
         )
-
         taskColl.createIndexes(indexes).toMono().subscribe()
-        taskFailColl.createIndexes(indexes).toMono().subscribe()
-        taskSuccessColl.createIndexes(indexes).toMono().subscribe()
 
         taskCallLogColl.createIndexes(listOf(
                 IndexModel(ascending("task_id"), IndexOptions().background(true)),
                 IndexModel(ascending("created_at"), IndexOptions().background(true))
-        ))
+        )).toMono().subscribe()
     }
 
     /**
@@ -61,11 +54,11 @@ class TaskRepository(
      */
     fun insert(task: Task): Mono<String> {
         val prefix = LocalDate.now().format(dtf)
-        val id = ObjectId().toString()
+        val id = "$prefix${ObjectId()}"
 
         val doc = Document(
                 mapOf(
-                        "_id" to "$prefix$id",
+                        "_id" to id,
                         "service_name" to task.serviceName,
                         "sid" to task.sid,
                         "cb_url" to task.cbUrl,
@@ -101,65 +94,40 @@ class TaskRepository(
      * 失败的通知任务。
      *
      * @param id 任务ID
+     * @param status 更新的任务状态
      * @param taskCallLog 回调日志
      */
-    fun fail(id: String, taskCallLog: TaskCallLog) = updateCall(id, taskCallLog, taskFailColl)
+    fun fail(id: String, status: TaskStatus, taskCallLog: TaskCallLog) = updateTask(id, status, taskCallLog)
 
     /**
      * 成功的通知任务。
      *
      * @param id 任务ID
+     * @param status 更新的任务状态
+     * @param taskCallLog 回调日志
      */
-    fun succeed(id: String, taskCallLog: TaskCallLog) = updateCall(id, taskCallLog, taskSuccessColl)
+    fun succeed(id: String, status: TaskStatus, taskCallLog: TaskCallLog) = updateTask(id, status, taskCallLog)
 
-    private fun updateCall(id: String, taskCallLog: TaskCallLog, archiveColl: MongoCollection<Document>) = mongoClient
-            .startSession()
-            .toMono()
-            .flatMap { session ->
-                session.startTransaction()
-
-                val q = eq("_id", id)
-                val m1 = taskColl.findOneAndUpdate(
-                        session,
-                        q,
-                        combine(
-                                inc("retry_count", 1),
-                                set("last_call_at", System.currentTimeMillis())
-                        ),
-                        FindOneAndUpdateOptions().returnDocument(ReturnDocument.AFTER)
-                ).toMono().flatMap { doc ->
-                    // 归档
-                    val retryCount = doc.getInteger("retry_count", -1)
-                    val retryMaxCount = doc.getInteger("retry_max_count", -1)
-                    if (retryCount >= retryMaxCount) {
-                        archiveColl.insertOne(session, doc).toMono()
-                    } else {
-                        Mono.just(doc)
-                    }
-                }
-
-                val m2 = taskColl.deleteOne(q).toMono()
-
-                // 回调日志
-                val m3 = taskCallLogColl.insertOne(
-                        session,
-                        Document(mapOf(
-                                "_id" to ObjectId().toString(),
-                                "task_id" to taskCallLog.taskId,
-                                "n" to taskCallLog.n,
-                                "http_status" to taskCallLog.httpStatus,
-                                "http_headers" to taskCallLog.httpHeaders,
-                                "http_body" to taskCallLog.httpBody,
-                                "created_at" to taskCallLog.createdAt
-                        ))
-                ).toMono()
-
-                Mono.`when`(m1, m2, m3).doOnSuccess {
-                    session.commitTransaction()
-                }.doOnError {
-                    session.abortTransaction()
-                }
-            }!!
+    private fun updateTask(id: String, status: TaskStatus, taskCallLog: TaskCallLog) = taskColl.updateOne(
+            eq("_id", id),
+            combine(
+                    set("status", status.status),
+                    set("last_call_at", System.currentTimeMillis()),
+                    inc("retry_count", 1)
+            )
+    ).toMono().flatMap {
+        taskCallLogColl.insertOne(
+                Document(mapOf(
+                        "_id" to ObjectId().toString(),
+                        "task_id" to taskCallLog.taskId,
+                        "n" to taskCallLog.n,
+                        "http_res_status" to taskCallLog.httpResStatus,
+                        "http_res_headers" to taskCallLog.httpResHeaders,
+                        "http_res_body" to taskCallLog.httpResBody,
+                        "created_at" to taskCallLog.createdAt
+                ))
+        ).toMono()
+    }!!
 
     private fun findById(coll: MongoCollection<Document>, id: String) = coll.find(eq("_id", id))
             .first()

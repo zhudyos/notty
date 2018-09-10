@@ -5,6 +5,4 @@ package io.zhudy.notty
  */
 class NottyProps {
 
-
-
 }

@@ -9,7 +9,6 @@ import io.zhudy.notty.vo.NewTaskVo
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import reactor.core.publisher.Mono
-import java.time.Instant
 
 /**
  * @author Kevin Zou (kevinz@weghst.com)
@@ -18,7 +17,7 @@ import java.time.Instant
 class TaskService(
         private val taskRepository: TaskRepository,
         private val redisConn: StatefulRedisConnection<String, String>,
-        private val redisPubSub: StatefulRedisPubSubConnection<String, String>
+        private val redisPub: StatefulRedisPubSubConnection<String, String>
 ) {
 
     private val log = LoggerFactory.getLogger(TaskService::class.java)
@@ -40,11 +39,11 @@ class TaskService(
         )
 
         return taskRepository.insert(task).flatMap { id ->
-            val score = Instant.now().epochSecond + task.cbDelay
+            val score = System.currentTimeMillis() + task.cbDelay * 1000 + 50
             redisConn.reactive().zadd(RedisKeys.TASK_QUEUE, score.toDouble(), id)
                     .doFinally {
                         // 发布通知处理任务
-                        redisPubSub.reactive()
+                        redisPub.reactive()
                                 .publish(NotificationService.NEW_TASK_CHANNEL, id)
                                 .doOnError {
                                     log.error("taskId: {}", id, it)

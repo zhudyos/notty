@@ -54,7 +54,10 @@ class Application {
     fun redisClient(@Value("%{notty.redis.uri}") uri: String) = RedisClient.create(uri)!!
 
     @Bean(destroyMethod = "close")
-    fun redisPubSub(redisClient: RedisClient) = redisClient.connectPubSub()!!
+    fun redisPub(redisClient: RedisClient) = redisClient.connectPubSub()!!
+
+    @Bean(destroyMethod = "close")
+    fun redisSub(redisClient: RedisClient) = redisClient.connectPubSub()!!
 
     @Bean(destroyMethod = "close")
     fun redisConn(redisClient: RedisClient) = redisClient.connect()!!

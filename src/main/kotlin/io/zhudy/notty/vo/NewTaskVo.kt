@@ -11,7 +11,7 @@ import io.zhudy.notty.domain.CbMethod
 data class NewTaskVo(
         @JsonProperty("service_name")
         val serviceName: String,
-        val sid: String,
+        val sid: String = "",
         @JsonProperty("cb_url")
         val cbUrl: String,
         @JsonProperty("cb_method")

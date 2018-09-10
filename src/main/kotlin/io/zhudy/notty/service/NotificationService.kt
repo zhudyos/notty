@@ -6,20 +6,23 @@ import io.lettuce.core.ScriptOutputType
 import io.lettuce.core.api.StatefulRedisConnection
 import io.lettuce.core.pubsub.RedisPubSubAdapter
 import io.lettuce.core.pubsub.StatefulRedisPubSubConnection
+import io.netty.channel.ChannelOption
+import io.netty.handler.timeout.ReadTimeoutHandler
 import io.zhudy.notty.RedisKeys
 import io.zhudy.notty.domain.CbMethod
 import io.zhudy.notty.domain.Task
 import io.zhudy.notty.domain.TaskCallLog
+import io.zhudy.notty.domain.TaskStatus
 import io.zhudy.notty.repository.NotFoundTaskException
 import io.zhudy.notty.repository.TaskRepository
 import org.slf4j.LoggerFactory
+import org.springframework.http.client.reactive.ReactorClientHttpConnector
 import org.springframework.stereotype.Service
 import org.springframework.web.reactive.function.client.WebClient
 import org.springframework.web.reactive.function.client.body
 import reactor.core.publisher.Mono
 import reactor.core.publisher.toMono
 import java.net.UnknownHostException
-import java.time.Instant
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.locks.ReentrantLock
 import javax.annotation.PostConstruct
@@ -33,7 +36,7 @@ import kotlin.concurrent.thread
 class NotificationService(
         private val redisClient: RedisClient,
         private val redisConn: StatefulRedisConnection<String, String>,
-        private val redisPubSub: StatefulRedisPubSubConnection<String, String>,
+        private val redisSub: StatefulRedisPubSubConnection<String, String>,
         private val taskRepository: TaskRepository
 ) {
     private val log = LoggerFactory.getLogger(NotificationService::class.java)
@@ -42,16 +45,24 @@ class NotificationService(
         const val NEW_TASK_CHANNEL = "notty:new:task"
     }
 
-    private val webClient = WebClient.create()
-    private var done = true
+    private val webClient = WebClient.builder()
+            .clientConnector(ReactorClientHttpConnector {
+                it.option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 2000)
+                        .afterNettyContextInit { ctx ->
+                            ctx.addHandlerLast(ReadTimeoutHandler(5000, TimeUnit.MILLISECONDS))
+                        }
+            })
+            .build()
+
     private val lock = ReentrantLock()
-    private val newTaskCond = lock.newCondition()
+    private val taskCond = lock.newCondition()
     private val shutdownCond = lock.newCondition()
 
     private val perTaskMax = 5
-    private val minDelaySec = 5
+    private val minDelayMs = 5 * 1000
+    private var done = true
 
-    private val pullTaskScriptSha by lazy {
+    private val pullTaskScriptSha = {
         val os = NotificationService::class.java.getResourceAsStream("/redis/pull_task.lua")
         val script = String(os.readBytes())
         val comm = redisConn.sync()
@@ -60,12 +71,12 @@ class NotificationService(
             comm.scriptLoad(script)
         }
         sha
-    }
+    }.invoke()
 
     @PostConstruct
     fun init() {
         thread(start = true, name = "notification-service", block = ::execute)
-        subscribeNewTask()
+        listenNewTask()
     }
 
     @PreDestroy
@@ -73,6 +84,7 @@ class NotificationService(
         done = false
         try {
             lock.lock()
+            taskCond.signal()
             shutdownCond.await()
         } finally {
             lock.unlock()
@@ -82,16 +94,16 @@ class NotificationService(
     private fun execute() {
         val conn = redisClient.connect()
         val limitStr = perTaskMax.toString()
-        val minDelaySecStr = minDelaySec.toString()
+        val minDelayMsStr = minDelayMs.toString()
         while (done) {
             try {
                 val ids = conn.reactive().evalsha<String>(
                         pullTaskScriptSha,
                         ScriptOutputType.VALUE,
                         arrayOf(RedisKeys.TASK_QUEUE),
-                        Instant.now().epochSecond.toString(),
+                        System.currentTimeMillis().toString(),
                         limitStr,
-                        minDelaySecStr)
+                        minDelayMsStr)
                         .collectList()
                         .block()
 
@@ -100,14 +112,14 @@ class NotificationService(
                 if (ids.size < perTaskMax) {
                     val sv = redisConn.sync().zrangeWithScores(RedisKeys.TASK_QUEUE, 0, 0).firstOrNull()
                     val waitSec = if (sv == null) {
-                        30
+                        30 * 1000
                     } else {
-                        (sv.score - Instant.now().epochSecond).toLong()
+                        (sv.score - System.currentTimeMillis()).toLong()
                     }
 
                     try {
                         lock.lock()
-                        newTaskCond.await(waitSec, TimeUnit.SECONDS)
+                        taskCond.await(waitSec, TimeUnit.MILLISECONDS)
                     } finally {
                         lock.unlock()
                     }
@@ -138,34 +150,36 @@ class NotificationService(
 
     private fun processTask(id: String) {
         val comm = redisConn.reactive()
-        findById(id).zipWhen { callRemote(it) }.flatMap {
+        findById(id).zipWhen(::callRemote).flatMap {
             val task = it.t1
             val log = it.t2
 
             if (log.success) {
-                taskRepository.succeed(id, log)
+                taskRepository.succeed(id, TaskStatus.SUCCEEDED, log)
             } else {
-                taskRepository.fail(id, log)
+                val status = if (log.n >= task.retryMaxCount) TaskStatus.FAILED else TaskStatus.PROCESSING
+                taskRepository.fail(id, status, log)
             }.doOnSuccess {
                 // 归档任务不在通知
                 if (log.success || log.n >= task.retryMaxCount) {
                     comm.zrem(RedisKeys.TASK_QUEUE, id).subscribe()
                 } else {
                     // 增加延迟时间
-                    val sec = log.n * log.n
-                    val nextSec = if (sec < 10) 10 else sec
-
-                    comm.zaddincr(
-                            RedisKeys.TASK_QUEUE,
-                            (nextSec - minDelaySec).toDouble(),
-                            id
-                    ).subscribe()
+                    val nextMs = log.n * log.n * 1000L
+                    if (nextMs > minDelayMs) {
+                        comm.zaddincr(
+                                RedisKeys.TASK_QUEUE,
+                                (nextMs - minDelayMs).toDouble(),
+                                id
+                        ).subscribe()
+                    }
                 }
             }
         }.doOnError { e ->
             if (e is NotFoundTaskException) {
                 // 移除任务
                 comm.zrem(RedisKeys.TASK_QUEUE, id).subscribe()
+                log.warn("Not found task: {}", id)
             } else {
                 log.error("", e)
             }
@@ -196,7 +210,7 @@ class NotificationService(
         }
 
         return client.uri(task.cbUrl)
-                .header("x-notty-taskid", task.id)
+                .header("x-request-id", task.id)
                 .exchange()
                 .zipWhen { it.bodyToMono(String::class.java) }
                 .map {
@@ -205,9 +219,9 @@ class NotificationService(
                     TaskCallLog(
                             taskId = task.id,
                             n = task.retryCount + 1,
-                            httpHeaders = res.headers().asHttpHeaders().toString(),
-                            httpStatus = status.value(),
-                            httpBody = it.t2 ?: "",
+                            httpResHeaders = res.headers().asHttpHeaders().toString(),
+                            httpResStatus = status.value(),
+                            httpResBody = it.t2 ?: "",
                             success = status.is2xxSuccessful,
                             createdAt = System.currentTimeMillis()
                     )
@@ -229,15 +243,15 @@ class NotificationService(
                 }
     }
 
-    private fun subscribeNewTask() {
-        val c = redisPubSub.reactive()
-        redisPubSub.addListener(object : RedisPubSubAdapter<String, String>() {
+    private fun listenNewTask() {
+        val c = redisSub.reactive()
+        redisSub.addListener(object : RedisPubSubAdapter<String, String>() {
 
             override fun message(channel: String, message: String) {
                 if (channel == NEW_TASK_CHANNEL) {
                     try {
                         lock.lock()
-                        newTaskCond.signal()
+                        taskCond.signal()
                     } finally {
                         lock.unlock()
                     }
