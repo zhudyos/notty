@@ -26,3 +26,7 @@ hs_err_pid*
 build/
 *.iml
 out/
+node_modules/
+dist/
+
+config/application\.yml
