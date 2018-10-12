@@ -1,7 +1,7 @@
 openapi: 3.0.0
 servers:
   - description: Local Notty Server
-    url: http://127.0.0.1:7778/api/v1
+    url: http://127.0.0.1:7779/api/v1
 
 info:
   description: Notty 通知回调服务 API
@@ -13,10 +13,16 @@ info:
     name: Apache 2.0
     url: http://www.apache.org/licenses/LICENSE-2.0.html
 
+tags:
+  - name: tasks
+    description: 回调任务
+
 paths:
   /tasks:
     post:
       summary: 提交新的通知任务
+      tags:
+        - tasks
       requestBody:
         required: true
         content:
@@ -36,6 +42,7 @@ paths:
                 cb_method:
                   type: string
                   description: 回调方法
+                  default: POST
                   enum:
                     - GET
                     - POST
@@ -80,7 +87,92 @@ paths:
                     example: 201807315d41402abc4b2a76b9719d911017c592
                 required:
                   - id
+    get:
+      summary: 任务列表
+      tags:
+        - tasks
+      parameters:
+        - in: query
+          name: q
+          description: 搜索关键字
+          schema:
+            type: string
+        - $ref: '#/components/parameters/PageQuery'
+        - $ref: '#/components/parameters/SizeQuery'
+      responses:
+        200:
+          description: 任务列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TaskRes'
+  /tasks/{id}:
+    delete:
+      summary: 取消任务通知
+      tags:
+        - tasks
+      parameters:
+        - in: path
+          name: id
+          description: 任务ID
+          required: true
+          schema:
+            type: string
+      responses:
+        204:
+          description: No Content
+    get:
+      summary: 获取任务信息
+      tags:
+        - tasks
+      parameters:
+        - in: path
+          name: id
+          description: 任务ID
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: 任务详情
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskRes'
+  /tasks/{id}/logs:
+    get:
+      summary: 获取任务回调日志记录
+      tags:
+        - tasks
+      parameters:
+        - in: path
+          name: id
+          description: 任务ID
+          required: true
+          schema:
+            type: string
+        - $ref: '#/components/parameters/PageQuery'
+        - $ref: '#/components/parameters/SizeQuery'
 components:
+  parameters:
+    PageQuery:
+      in: query
+      name: page
+      description: 页码
+      required: true
+      default: 1
+      schema:
+        type: integer
+    SizeQuery:
+      in: query
+      name: size
+      description: 记录数
+      required: true
+      default: 30
+      schema:
+        type: integer
   schemas:
     ErrorRes:
       properties:
@@ -93,3 +185,37 @@ components:
       required:
         - code
         - message
+    TaskRes:
+      properties:
+        id:
+          type: string
+          description: 任务ID
+        service_name:
+          type: string
+          description: 提交任务的服务名称
+        cb_url:
+          type: string
+          description: 回调URL
+        cb_method:
+          type: string
+          description: 回调方法
+          enum:
+            - GET
+            - POST
+        retry_count:
+          type: integer
+          description: 已重试次数
+        retry_max_count:
+          type: integer
+          description: 最大重试次数
+        status:
+          type: string
+          description: 任务状态
+        last_call_at:
+          type: integer
+          format: int64
+          description: 上次回调时间戳
+        created_at:
+          type: integer
+          format: int64
+          description: 回调任务创建时间戳
