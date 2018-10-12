@@ -1,6 +1,6 @@
 buildscript {
     ext {
-        kotlinVersion = "1.2.61"
+        kotlinVersion = "1.2.70"
         springBootVersion = "2.0.4.RELEASE"
     }
 
@@ -54,6 +54,7 @@ dependencies {
     compile "io.lettuce:lettuce-core:5.0.5.RELEASE"
 
     compile "com.fasterxml.jackson.module:jackson-module-kotlin:2.9.6"
+    compile "io.zhudy.kitty:kitty:1.0.0"
 }
 
 [compileJava, compileTestJava, javadoc]*.options*.encoding = "UTF-8"
