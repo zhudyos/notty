@@ -2,6 +2,7 @@ package io.zhudy.notty.service
 
 import io.lettuce.core.api.StatefulRedisConnection
 import io.lettuce.core.pubsub.StatefulRedisPubSubConnection
+import io.zhudy.kitty.domain.Pageable
 import io.zhudy.notty.RedisKeys
 import io.zhudy.notty.domain.Task
 import io.zhudy.notty.repository.TaskRepository
@@ -53,5 +54,25 @@ class TaskService(
                     .map { id }
         }
     }
+
+    /**
+     * 取消回调任务。
+     */
+    fun cancel(id: String) = taskRepository.cancel(id)
+
+    /**
+     * 根据ID查询指定任务信息。
+     */
+    fun findById(id: String) = taskRepository.findById(id)
+
+    /**
+     * 查询任务。
+     */
+    fun findTasks(pageable: Pageable) = taskRepository.findTasks(pageable)
+
+    /**
+     * 查询任务回调记录。
+     */
+    fun findLogsById(id: String, pageable: Pageable) = taskRepository.findLogsById(id, pageable)
 
 }

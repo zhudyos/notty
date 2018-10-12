@@ -1,6 +1,7 @@
 package io.zhudy.notty.repository
 
 import com.mongodb.ReadPreference
+import com.mongodb.client.model.Filters.and
 import com.mongodb.client.model.Filters.eq
 import com.mongodb.client.model.IndexModel
 import com.mongodb.client.model.IndexOptions
@@ -9,6 +10,9 @@ import com.mongodb.client.model.Indexes.descending
 import com.mongodb.client.model.Updates.*
 import com.mongodb.reactivestreams.client.MongoClient
 import com.mongodb.reactivestreams.client.MongoCollection
+import io.zhudy.kitty.biz.BizCodeException
+import io.zhudy.kitty.domain.Pageable
+import io.zhudy.notty.BizCodes
 import io.zhudy.notty.domain.CbMethod
 import io.zhudy.notty.domain.Task
 import io.zhudy.notty.domain.TaskCallLog
@@ -17,6 +21,7 @@ import org.bson.Document
 import org.bson.types.ObjectId
 import org.springframework.stereotype.Repository
 import reactor.core.publisher.Mono
+import reactor.core.publisher.toFlux
 import reactor.core.publisher.toMono
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
@@ -77,6 +82,25 @@ class TaskRepository(
     }
 
     /**
+     * 取消任务回调。
+     */
+    fun cancel(id: String): Mono<Unit> {
+        return taskColl.updateOne(
+                and(
+                        eq("_id", id),
+                        eq("status", TaskStatus.PROCESSING.status)
+                ),
+                set("status", TaskStatus.CANCEL.status)
+        ).toMono().flatMap {
+            if (it.isModifiedCountAvailable) {
+                Mono.error(BizCodeException(BizCodes.C_4005))
+            } else {
+                Mono.just(Unit)
+            }
+        }
+    }
+
+    /**
      * 根据ID查询任务。
      *
      * @throws NotFoundTaskException 指定ID的任务不存在时
@@ -108,6 +132,21 @@ class TaskRepository(
      */
     fun succeed(id: String, status: TaskStatus, taskCallLog: TaskCallLog) = updateTask(id, status, taskCallLog)
 
+    /**
+     * 查询任务。
+     */
+    fun findTasks(pageable: Pageable) = taskColl.find().skip(pageable.offset).limit(pageable.size)
+            .toFlux()
+            .map(::mapToTask)
+
+    /**
+     * 查询任务回调记录。
+     */
+    fun findLogsById(id: String, pageable: Pageable) = taskCallLogColl.find(eq("task_id", id)).skip(pageable.offset)
+            .limit(pageable.size)
+            .toFlux()
+            .map(::mapToTaskCallLog)
+
     private fun updateTask(id: String, status: TaskStatus, taskCallLog: TaskCallLog) = taskColl.updateOne(
             eq("_id", id),
             combine(
@@ -135,22 +174,33 @@ class TaskRepository(
             .switchIfEmpty(Mono.defer {
                 throw NotFoundTaskException(id)
             })
-            .map {
-                Task(
-                        id = id,
-                        sid = it.getString("sid") ?: "",
-                        serviceName = it.getString("service_name"),
-                        cbUrl = it.getString("cb_url"),
-                        cbMethod = CbMethod.valueOf(it.getString("cb_method")),
-                        cbContentType = it.getString("content-type") ?: "",
-                        cbData = it["cb_data"],
-                        cbDelay = it.getLong("cb_delay") ?: 0,
-                        retryCount = it.getInteger("retry_count", 0),
-                        retryMaxCount = it.getInteger("retry_max_count", -1),
-                        status = TaskStatus.forStatus(it.getInteger("status")),
-                        lastCallAt = it.getLong("last_call_at") ?: 0,
-                        succeededAt = it.getLong("succeeded_at") ?: 0,
-                        createdAt = it.getLong("created_at")
-                )
-            }!!
+            .map(::mapToTask)
+
+    private fun mapToTask(doc: Document) = Task(
+            id = doc.getString("_id"),
+            sid = doc.getString("sid") ?: "",
+            serviceName = doc.getString("service_name"),
+            cbUrl = doc.getString("cb_url"),
+            cbMethod = CbMethod.valueOf(doc.getString("cb_method")),
+            cbContentType = doc.getString("content-type") ?: "",
+            cbData = doc["cb_data"],
+            cbDelay = doc.getLong("cb_delay") ?: 0,
+            retryCount = doc.getInteger("retry_count", 0),
+            retryMaxCount = doc.getInteger("retry_max_count", -1),
+            status = TaskStatus.forStatus(doc.getInteger("status")),
+            lastCallAt = doc.getLong("last_call_at") ?: 0,
+            succeededAt = doc.getLong("succeeded_at") ?: 0,
+            createdAt = doc.getLong("created_at")
+    )
+
+    private fun mapToTaskCallLog(doc: Document) = TaskCallLog(
+            taskId = doc.getString("task_id"),
+            n = doc.getInteger("n"),
+            httpResStatus = doc.getInteger("http_res_status"),
+            httpResHeaders = doc.getString("http_res_headers"),
+            httpResBody = doc.getString("http_res_body"),
+            success = doc.getBoolean("success"),
+            reason = doc.getString("reason"),
+            createdAt = doc.getLong("created_at")
+    )
 }
