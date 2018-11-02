@@ -1,7 +1,7 @@
 buildscript {
     ext {
-        kotlinVersion = "1.2.70"
-        springBootVersion = "2.0.4.RELEASE"
+        kotlinVersion = "1.3.0"
+        springBootVersion = "2.1.0.RELEASE"
     }
 
     repositories {
@@ -20,7 +20,7 @@ buildscript {
 plugins {
     id "net.researchgate.release" version "2.6.0"
     id "com.moowork.node" version "1.2.0"
-    id "net.ltgt.apt" version "0.10"
+    id "org.jetbrains.kotlin.kapt" version "1.3.0"
     id "com.github.hierynomus.license" version "0.14.0"
 }
 
@@ -30,31 +30,39 @@ apply plugin: "idea"
 apply plugin: "jacoco"
 apply plugin: "kotlin"
 apply plugin: "kotlin-spring"
+apply plugin: "kotlin-kapt"
 apply plugin: "org.springframework.boot"
 apply plugin: "com.github.hierynomus.license"
 apply plugin: "com.bmuschko.docker-remote-api"
 
 group "io.zhudy.notty"
 
+kapt {
+    generateStubs = true
+}
+
 repositories {
     mavenLocal()
     mavenCentral()
+    jcenter()
 }
 
 dependencies {
-    compile "org.jetbrains.kotlin:kotlin-stdlib-jdk8"
-    compile "org.jetbrains.kotlin:kotlin-reflect"
+    compile "org.jetbrains.kotlin:kotlin-stdlib:$kotlinVersion"
+    compile "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.0.0"
 
     compile("org.springframework.boot:spring-boot-starter-webflux:$springBootVersion") {
         exclude module: "hibernate-validator"
         exclude module: "nio-multipart-parser"
     }
-    compile "io.netty:netty-transport-native-epoll:4.1.22.Final:linux-x86_64"
+
     compile "org.mongodb:mongodb-driver-reactivestreams:1.9.0"
     compile "io.lettuce:lettuce-core:5.0.5.RELEASE"
 
     compile "com.fasterxml.jackson.module:jackson-module-kotlin:2.9.6"
     compile "io.zhudy.kitty:kitty:1.0.0"
+
+    kapt "io.requery:requery-processor:1.5.1"
 }
 
 [compileJava, compileTestJava, javadoc]*.options*.encoding = "UTF-8"
