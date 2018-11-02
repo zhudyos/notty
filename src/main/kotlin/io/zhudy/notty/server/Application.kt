@@ -66,8 +66,7 @@ class Application {
 
         @JvmStatic
         fun main(args: Array<String>) {
-            runApplication<Application>(*args) {
-            }
+            runApplication<Application>(*args) { }
         }
     }
 }

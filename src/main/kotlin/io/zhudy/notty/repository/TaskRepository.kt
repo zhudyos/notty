@@ -23,7 +23,6 @@ import org.springframework.stereotype.Repository
 import reactor.core.publisher.Mono
 import reactor.core.publisher.toFlux
 import reactor.core.publisher.toMono
-import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
 /**
@@ -58,12 +57,9 @@ class TaskRepository(
      * 保存新任务。
      */
     fun insert(task: Task): Mono<String> {
-        val prefix = LocalDate.now().format(dtf)
-        val id = "$prefix${ObjectId()}"
-
         val doc = Document(
                 mapOf(
-                        "_id" to id,
+                        "_id" to task.id,
                         "service_name" to task.serviceName,
                         "sid" to task.sid,
                         "cb_url" to task.cbUrl,
@@ -78,7 +74,7 @@ class TaskRepository(
                 )
         )
 
-        return taskColl.insertOne(doc).toMono().map { id }
+        return taskColl.insertOne(doc).toMono().map { task.id }
     }
 
     /**
