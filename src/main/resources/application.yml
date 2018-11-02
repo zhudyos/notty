@@ -8,5 +8,4 @@ spring:
   jackson:
     default-property-inclusion: non_default
     date-format: yyyy-MM-dd'T'HH:mm:ss
-    joda-date-time-format: yyyy-MM-dd'T'HH:mm:ss
     property-naming-strategy: SNAKE_CASE
