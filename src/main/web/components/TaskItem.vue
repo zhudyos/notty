@@ -1,53 +1,55 @@
 <template>
-    <div class="row mt-2" :class="rowBorderClass">
+    <div class="row mt-2 bg-transparent" :class="rowBorderClass">
         <div class="d-flex">
             <div class="container">
                 <div class="row">
                     <div class="col-md-6 d-flex">
                         <div class="t-data-item-title">ID:</div>
-                        <div class="text-secondary ml-1">{{ id }}</div>
+                        <div class="ml-1" title="任务ID">{{ id }}</div>
                     </div>
                     <div class="col-md-6 d-flex">
                         <div class="t-data-item-title">Service Name:</div>
-                        <div class="text-secondary ml-1">{{ serviceName }}</div>
+                        <div class="ml-1" title="提交任务服务名">{{ serviceName }}</div>
                     </div>
                     <div class="col-md-6 d-flex">
                         <div class="t-data-item-title">SID:</div>
-                        <div class="text-secondary ml-1">{{ sid }}</div>
+                        <div class="ml-1" title="业务ID">{{ sid }}</div>
                     </div>
                     <div class="col-md-6 d-flex">
                         <div class="t-data-item-title">Created At:</div>
-                        <div class="text-secondary ml-1">{{ createdAt }}</div>
+                        <div class="ml-1" title="任务提交时间">{{ createdAt }}</div>
                     </div>
                     <div class="col-md-6 d-flex">
                         <div class="t-data-item-title">URL:</div>
-                        <div class="text-secondary ml-1">{{ url }}</div>
+                        <div class="ml-1" title="回调地址">{{ url }}</div>
                     </div>
                     <div class="col-md-6 d-flex">
                         <div class="t-data-item-title">Last Call At:</div>
-                        <div class="text-secondary ml-1">{{ lastCallAt }}</div>
+                        <div class="ml-1" title="最后回调时间">{{ lastCallAt }}</div>
                     </div>
                     <template v-if="showDetails">
                         <div class="col-md-6 d-flex">
                             <div class="t-data-item-title">Retry Count:</div>
-                            <div class="text-secondary ml-1">{{ retryCount }}</div>
+                            <div class="ml-1" title="已回调次数">{{ retryCount }}</div>
                         </div>
                         <div class="col-md-6 d-flex">
                             <div class="t-data-item-title">Retry Max Count:</div>
-                            <div class="text-secondary ml-1">{{ retryMaxCount }}</div>
+                            <div class="ml-1" title="最大回调次数">{{ retryMaxCount }}</div>
                         </div>
                         <div class="col-md-6 d-flex">
                             <div class="t-data-item-title">Method:</div>
-                            <div class="text-secondary ml-1">{{ method }}</div>
+                            <div class="ml-1" title="回调方法">{{ method }}</div>
                         </div>
                         <div class="col-md-6 d-flex">
                             <div class="t-data-item-title">Content-Type:</div>
-                            <div class="text-secondary ml-1">{{ contentType }}</div>
+                            <div class="ml-1" title="回调内容类型">{{ contentType }}</div>
                         </div>
                         <div class="col-md-6 d-flex">
                             <div class="t-data-item-title">Body:</div>
                             <div class="ml-1">
-                                <pre class="text-secondary">{{ prettyBody }}</pre>
+                                <pre class="text-white mb-0"><read-more :max-chars="20"
+                                                                   :text="prettyBody"
+                                ></read-more></pre>
                             </div>
                         </div>
                         <div class="col-12">
@@ -58,18 +60,40 @@
             </div>
             <div class="d-flex flex-column justify-content-center align-items-center task-item-right-option"
                  :class="taskItemRightOptionBorderClass"
-                 @click="toggleDetails()"
             >
-                <i class="fas fa-ellipsis-v"></i>
+                <a href="#"
+                   class="text-white"
+                   title="取消任务"
+                   v-if="status == 1"
+                ><i class="fas fa-ban"></i></a>
+                <a href="#"
+                   class="text-white"
+                   title="重新执行"
+                   v-if="status == 7 || status == 9"
+                ><i class="fas fa-recycle"></i></a>
+                <a href="#"
+                   class="text-white"
+                   title="手动回调"
+                   v-if="status != 8"
+                ><i class="fas fa-sync"></i></a>
+                <a href="#"
+                   class="text-white"
+                   title="任务详情"
+                   @click="toggleDetails()"
+                ><i class="fas fa-ellipsis-h"></i></a>
             </div>
         </div>
     </div>
 </template>
 <script>
     import TaskDetails from "./TaskDetails.vue"
+    import ReadMore from "./ReadMore.vue";
 
     export default {
-        components: {TaskDetails},
+        components: {
+            ReadMore,
+            TaskDetails
+        },
         name: "TaskItem",
         props: {
             id: String,
@@ -133,5 +157,5 @@
 </script>
 <style lang="stylus" scoped>
     .task-item-right-option
-        padding 0 5px
+        width 18px
 </style>

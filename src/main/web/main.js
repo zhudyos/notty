@@ -1,5 +1,5 @@
 import Vue from 'vue'
-import 'bootstrap/dist/css/bootstrap.css'
+import './public/css/bootstrap.css'
 import '@fortawesome/fontawesome-free/css/all.css'
 
 import Main from './pages/Main.vue'
