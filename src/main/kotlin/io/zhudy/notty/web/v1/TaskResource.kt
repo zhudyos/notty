@@ -21,14 +21,12 @@ class TaskResource(
     /**
      * 创建新的通知任务。
      */
+    @Suppress("HasPlatformType")
     fun newTask(request: ServerRequest) = request.bodyToMono(NewTaskVo::class.java)
-            .flatMap { taskService.newTask(it) }
+            .flatMap(taskService::newTask)
             .flatMap { ok().body(Mono.just(mapOf("id" to it))) }
 
-    /**
-     * 查询任务列表。
-     */
-    fun findTasks(request: ServerRequest) = ok().body(taskService.findTasks(request.pageParam()))
+//    fun invoke(request: ServerRequest)
 
     /**
      * 取消通知任务。
@@ -38,6 +36,11 @@ class TaskResource(
     ).flatMap {
         noContent().build()
     }
+
+    /**
+     * 查询任务列表。
+     */
+    fun findTasks(request: ServerRequest) = ok().body(taskService.findTasks(request.pageParam()))
 
     /**
      * 根据任务ID查询任务信息。

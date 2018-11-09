@@ -23,7 +23,6 @@ import org.springframework.stereotype.Repository
 import reactor.core.publisher.Mono
 import reactor.core.publisher.toFlux
 import reactor.core.publisher.toMono
-import java.time.format.DateTimeFormatter
 
 /**
  * @author Kevin Zou (kevinz@weghst.com)
@@ -36,7 +35,6 @@ class TaskRepository(
     private val db get() = mongoClient.getDatabase("notty")
     private val taskColl get() = db.getCollection("task")
     private val taskCallLogColl get() = db.getCollection("task_call_log")
-    private val dtf = DateTimeFormatter.ofPattern("yyyyMMdd")
 
     init {
         val indexes = listOf(
@@ -80,20 +78,18 @@ class TaskRepository(
     /**
      * 取消任务回调。
      */
-    fun cancel(id: String): Mono<Unit> {
-        return taskColl.updateOne(
-                and(
-                        eq("_id", id),
-                        eq("status", TaskStatus.PROCESSING.status)
-                ),
-                set("status", TaskStatus.CANCEL.status)
-        ).toMono().flatMap {
-            if (it.isModifiedCountAvailable) {
-                Mono.error(BizCodeException(BizCodes.C_4005))
-            } else {
-                Mono.just(Unit)
-            }
+    @Suppress("HasPlatformType")
+    fun cancel(id: String) = taskColl.updateOne(
+            and(
+                    eq("_id", id),
+                    eq("status", TaskStatus.PROCESSING.status)
+            ),
+            set("status", TaskStatus.CANCEL.status)
+    ).toMono().map {
+        if (it.isModifiedCountAvailable) {
+            throw BizCodeException(BizCodes.C_4005)
         }
+        Unit
     }
 
     /**
@@ -101,6 +97,7 @@ class TaskRepository(
      *
      * @throws NotFoundTaskException 指定ID的任务不存在时
      */
+    @Suppress("HasPlatformType")
     fun findById(id: String) = findById(taskColl, id)
 
     /**
@@ -108,6 +105,7 @@ class TaskRepository(
      *
      * @throws NotFoundTaskException 指定ID的任务不存在时
      */
+    @Suppress("HasPlatformType")
     fun findById4Primary(id: String) = findById(taskColl.withReadPreference(ReadPreference.primary()), id)
 
     /**
@@ -131,14 +129,20 @@ class TaskRepository(
     /**
      * 查询任务。
      */
-    fun findTasks(pageable: Pageable) = taskColl.find().skip(pageable.offset).limit(pageable.size)
+    @Suppress("HasPlatformType")
+    fun findTasks(pageable: Pageable) = taskColl.find()
+            .skip(pageable.offset)
+            .limit(pageable.size)
+            .sort(Document("created_at", -1))
             .toFlux()
             .map(::mapToTask)
 
     /**
      * 查询任务回调记录。
      */
-    fun findLogsById(id: String, pageable: Pageable) = taskCallLogColl.find(eq("task_id", id)).skip(pageable.offset)
+    @Suppress("HasPlatformType")
+    fun findLogsById(id: String, pageable: Pageable) = taskCallLogColl.find(eq("task_id", id))
+            .skip(pageable.offset)
             .limit(pageable.size)
             .toFlux()
             .map(::mapToTaskCallLog)
@@ -156,6 +160,8 @@ class TaskRepository(
                         "_id" to ObjectId().toString(),
                         "task_id" to taskCallLog.taskId,
                         "n" to taskCallLog.n,
+                        "success" to taskCallLog.success,
+                        "reason" to taskCallLog.reason,
                         "http_res_status" to taskCallLog.httpResStatus,
                         "http_res_headers" to taskCallLog.httpResHeaders,
                         "http_res_body" to taskCallLog.httpResBody,

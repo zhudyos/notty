@@ -23,7 +23,6 @@ import reactor.core.publisher.Mono
 import reactor.core.publisher.toMono
 import reactor.netty.http.client.HttpClient
 import reactor.netty.tcp.TcpClient
-import reactor.util.function.Tuple2
 import java.net.UnknownHostException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.locks.ReentrantLock
@@ -104,8 +103,10 @@ class NotificationService(
                         arrayOf(RedisKeys.TASK_QUEUE),
                         System.currentTimeMillis().toString(),
                         limitStr,
-                        minDelayMsStr)
-                        .map(::processTask)
+                        minDelayMsStr
+                )
+                        .flatMap(::findById)
+                        .flatMap(::invoke)
                         .collectList()
                         .block()
 
@@ -144,45 +145,6 @@ class NotificationService(
             shutdownCond.signal()
         } finally {
             lock.unlock()
-        }
-    }
-
-    private fun processTask(id: String): Mono<Tuple2<Task, TaskCallLog>> {
-        val comm = redisConn.reactive()
-        return findById(id).zipWhen(::callRemote).doOnNext {
-            val task = it.t1
-            val log = it.t2
-
-            val rs = if (log.success) {
-                taskRepository.succeed(id, TaskStatus.SUCCEEDED, log)
-            } else {
-                val status = if (log.n >= task.retryMaxCount) TaskStatus.FAILED else TaskStatus.PROCESSING
-                taskRepository.fail(id, status, log)
-            }.doOnSuccess {
-                // 归档任务不在通知
-                if (log.success || log.n >= task.retryMaxCount) {
-                    comm.zrem(RedisKeys.TASK_QUEUE, id).subscribe()
-                } else {
-                    // 增加延迟时间
-                    val nextMs = log.n * log.n * 1000L
-                    if (nextMs > minDelayMs) {
-                        comm.zaddincr(
-                                RedisKeys.TASK_QUEUE,
-                                (nextMs - minDelayMs).toDouble(),
-                                id
-                        ).subscribe()
-                    }
-                }
-            }
-            rs.subscribe()
-        }.doOnError { e ->
-            if (e is NotFoundTaskException) {
-                // 移除任务
-                comm.zrem(RedisKeys.TASK_QUEUE, id).subscribe()
-                log.error("Not found task: {}", id)
-            } else {
-                log.error("", e)
-            }
         }
     }
 
@@ -247,11 +209,11 @@ class NotificationService(
                     )
 
                     taskRepository.fail(task.id, TaskStatus.FAILED, log).map { log }
-                }.flatMap { log ->
+                }.map { log ->
                     val comm = redisConn.reactive()
                     // 归档任务不在通知
                     if (log.success || log.n >= task.retryMaxCount) {
-                        comm.zrem(RedisKeys.TASK_QUEUE, task.id)
+                        comm.zrem(RedisKeys.TASK_QUEUE, task.id).subscribe()
                     } else {
                         // 增加延迟时间
                         val nextMs = log.n * log.n * 1000L
@@ -260,65 +222,11 @@ class NotificationService(
                                     RedisKeys.TASK_QUEUE,
                                     (nextMs - minDelayMs).toDouble(),
                                     task.id
-                            )
-                        } else {
-                            // FIXME empty 无法在继续消费了
-                            Mono.empty()
+                            ).subscribe()
                         }
-                    }.map {
-                        log
                     }
-                }
-    }
 
-    private fun callRemote(task: Task): Mono<TaskCallLog> {
-        val client = when (task.cbMethod) {
-            CbMethod.GET -> webClient.get()
-            CbMethod.POST -> {
-                val p = webClient.post()
-                if (task.cbData != null) {
-                    if (task.cbContentType.isNotEmpty()) {
-                        p.header("content-type", task.cbContentType)
-                    } else {
-                        p.header("content-type", "application/json; charset=utf-8")
-                    }
-                    p.body(Mono.just(task.cbData))
-                }
-                p
-            }
-        }
-
-        return client.uri(task.cbUrl)
-                .header("x-request-id", task.id)
-                .exchange()
-                .zipWhen { it.bodyToMono(String::class.java) }
-                .map {
-                    val res = it.t1
-                    val status = res.statusCode()
-                    TaskCallLog(
-                            taskId = task.id,
-                            n = task.retryCount + 1,
-                            httpResHeaders = res.headers().asHttpHeaders().toString(),
-                            httpResStatus = status.value(),
-                            httpResBody = it.t2 ?: "",
-                            success = status.is2xxSuccessful,
-                            createdAt = System.currentTimeMillis()
-                    )
-                }
-                .onErrorResume { u ->
-                    val reason = if (u is UnknownHostException) {
-                        u.message
-                    } else {
-                        u.message
-                    } ?: u.javaClass.canonicalName
-
-                    TaskCallLog(
-                            taskId = task.id,
-                            n = task.retryCount + 1,
-                            success = false,
-                            reason = reason,
-                            createdAt = System.currentTimeMillis()
-                    ).toMono()
+                    log
                 }
     }
 

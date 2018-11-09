@@ -50,27 +50,47 @@ class TaskService(
             NotificationService.TASK_MIN_DELAY_MS
         }
         val score = System.currentTimeMillis() + minDelayMs
+        val nowCall = cbDelayMs <= 0
 
         return redisConn.reactive()
                 .zadd(RedisKeys.TASK_QUEUE, score.toDouble(), id)
                 .flatMap { taskRepository.insert(task) }
-                .flatMap {
-                    if (cbDelayMs > 0) {
+                .doOnNext {
+                    if (nowCall) {
                         // 如果任务本身没有延迟则立即在当前进程中执行回调任务
                         // 反之则
                         notificationService.invoke(task)
-                    } else {
-                        // FIXME empty 无法在继续消费了
-                        Mono.empty()
+                                .doOnSuccess { tcl ->
+                                    log.info("回调成功: {}", tcl)
+                                }
+                                .doOnError { e ->
+                                    log.error("回调任务失败: {}", id, e)
+                                }
+                                .subscribe()
                     }
-                }.flatMap {
+                }
+                .flatMap {
                     redisPub.reactive().publish(NotificationService.NEW_TASK_CHANNEL, id)
                 }
                 .map { id }
     }
 
     /**
-     * 取消回调任务。
+     * 执行指定的任务。
+     *
+     * @param id 任务ID
+     */
+    @Suppress("HasPlatformType")
+    fun invoke(id: String) = taskRepository.findById(id)
+            .doOnNext {
+                // FIXME 校验任务状态是否符合要求
+            }
+            .flatMap(notificationService::invoke)
+
+    /**
+     * 取消指定的任务。
+     *
+     * @param id 任务ID
      */
     fun cancel(id: String) = taskRepository.cancel(id)
 
@@ -82,11 +102,13 @@ class TaskService(
     /**
      * 查询任务。
      */
+    @Suppress("HasPlatformType")
     fun findTasks(pageable: Pageable) = taskRepository.findTasks(pageable)
 
     /**
      * 查询任务回调记录。
      */
+    @Suppress("HasPlatformType")
     fun findLogsById(id: String, pageable: Pageable) = taskRepository.findLogsById(id, pageable)
 
 }
