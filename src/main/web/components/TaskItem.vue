@@ -17,7 +17,7 @@
                     </div>
                     <div class="col-md-6 d-flex">
                         <div class="t-data-item-title">Created At:</div>
-                        <div class="ml-1" title="任务提交时间">{{ createdAt }}</div>
+                        <div class="ml-1" title="任务提交时间">{{ $dayjs(createdAt).format("YYYY-MM-DD hh:mm:ss") }}</div>
                     </div>
                     <div class="col-md-6 d-flex">
                         <div class="t-data-item-title">URL:</div>
@@ -25,7 +25,7 @@
                     </div>
                     <div class="col-md-6 d-flex">
                         <div class="t-data-item-title">Last Call At:</div>
-                        <div class="ml-1" title="最后回调时间">{{ lastCallAt }}</div>
+                        <div class="ml-1" title="最后回调时间" v-if="lastCallAt">{{ $dayjs(lastCallAt).format("YYYY-MM-DD hh:mm:ss") }}</div>
                     </div>
                     <template v-if="showDetails">
                         <div class="col-md-6 d-flex">
@@ -47,13 +47,11 @@
                         <div class="col-md-6 d-flex">
                             <div class="t-data-item-title">Body:</div>
                             <div class="ml-1">
-                                <pre class="text-white mb-0"><read-more :max-chars="20"
-                                                                   :text="prettyBody"
-                                ></read-more></pre>
+                                <read-more :max-chars="20" :text="body"></read-more>
                             </div>
                         </div>
                         <div class="col-12">
-                            <task-details></task-details>
+                            <task-details :id="id"></task-details>
                         </div>
                     </template>
                 </div>
@@ -87,7 +85,7 @@
 </template>
 <script>
     import TaskDetails from "./TaskDetails.vue"
-    import ReadMore from "./ReadMore.vue";
+    import ReadMore from "./ReadMore.vue"
 
     export default {
         components: {
@@ -99,12 +97,12 @@
             id: String,
             serviceName: String,
             sid: String,
-            createdAt: String,
+            createdAt: Number,
             url: String,
             method: String,
             contentType: String,
             body: String,
-            lastCallAt: String,
+            lastCallAt: Number,
             retryCount: Number,
             retryMaxCount: Number,
             status: Number
@@ -134,18 +132,6 @@
                     return "border-left border-success"
                 }
                 return "border-left border-danger"
-            },
-            prettyBody() {
-                if (!this.body) {
-                    return ''
-                }
-
-                try {
-                    let b = JSON.parse(this.body)
-                    return JSON.stringify(b, null, 2)
-                } catch (e) {
-                    return this.body
-                }
             }
         },
         methods: {

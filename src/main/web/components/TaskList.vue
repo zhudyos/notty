@@ -24,64 +24,9 @@
         components: {TaskItem},
         name: 'TaskList',
         data: () => ({
-            items: [
-                {
-                    id: "20181012d41d8cd98f00b204e9800998ecf8427e",
-                    service_name: "hello-world",
-                    sid: "d41d8cd98f00b204e9800998ecf8427e",
-                    created_at: "2018-10-11T15:52:00",
-                    cb_url: "https://www.2339.com/9699?clickfrom=1",
-                    last_call_at: "2018-10-11T15:52:11",
-                    retry_count: 10,
-                    retry_max_count: 999,
-                    cb_method: "GET",
-                    cb_content_type: "application/json; charset=utf-8",
-                    status: 1,
-                    cb_data: `{ "menu":{ "id":"file", "value":"File", "popup":{ "menuitem":[ { "value":"New", "onclick":"CreateNewDoc()" }, { "value":"Open", "onclick":"OpenDoc()" }, { "value":"Close", "onclick":"CloseDoc()" } ] } } }`
-                },
-                {
-                    id: "20181012d41d8cd98f00b204e9800998ecf8427e",
-                    service_name: "hello-world",
-                    sid: "d41d8cd98f00b204e9800998ecf8427e",
-                    created_at: "2018-10-11T15:52:00",
-                    cb_url: "https://www.2339.com/9699?clickfrom=1",
-                    last_call_at: "2018-10-11T15:52:11",
-                    retry_count: 10,
-                    retry_max_count: 999,
-                    cb_method: "GET",
-                    cb_content_type: "application/json; charset=utf-8",
-                    status: 7,
-                    cb_data: `{ "menu":{ "id":"file", "value":"File", "popup":{ "menuitem":[ { "value":"New", "onclick":"CreateNewDoc()" }, { "value":"Open", "onclick":"OpenDoc()" }, { "value":"Close", "onclick":"CloseDoc()" } ] } } }`
-                },
-                {
-                    id: "20181012d41d8cd98f00b204e9800998ecf8427e",
-                    service_name: "hello-world",
-                    sid: "d41d8cd98f00b204e9800998ecf8427e",
-                    created_at: "2018-10-11T15:52:00",
-                    cb_url: "https://www.2339.com/9699?clickfrom=1",
-                    last_call_at: "2018-10-11T15:52:11",
-                    retry_count: 10,
-                    retry_max_count: 999,
-                    cb_method: "GET",
-                    cb_content_type: "application/json; charset=utf-8",
-                    status: 8,
-                    cb_data: `{ "menu":{ "id":"file", "value":"File", "popup":{ "menuitem":[ { "value":"New", "onclick":"CreateNewDoc()" }, { "value":"Open", "onclick":"OpenDoc()" }, { "value":"Close", "onclick":"CloseDoc()" } ] } } }`
-                },
-                {
-                    id: "20181012d41d8cd98f00b204e9800998ecf8427e",
-                    service_name: "hello-world",
-                    sid: "d41d8cd98f00b204e9800998ecf8427e",
-                    created_at: "2018-10-11T15:52:00",
-                    cb_url: "https://www.2339.com/9699?clickfrom=1",
-                    last_call_at: "2018-10-11T15:52:11",
-                    retry_count: 10,
-                    retry_max_count: 999,
-                    cb_method: "GET",
-                    cb_content_type: "application/json; charset=utf-8",
-                    status: 9,
-                    cb_data: `{ "menu":{ "id":"file", "value":"File", "popup":{ "menuitem":[ { "value":"New", "onclick":"CreateNewDoc()" }, { "value":"Open", "onclick":"OpenDoc()" }, { "value":"Close", "onclick":"CloseDoc()" } ] } } }`
-                }
-            ],
+            items: [],
+            page: 1,
+            size: 20,
             enough: true
         }),
         mounted() {
@@ -93,11 +38,11 @@
                     return
                 }
 
-//                axios.get("/api/v1/tasks").then(response => {
-//
-//                }).catch(error => {
-//
-//                })
+               axios.get(`/api/v1/tasks?page=${this.page}&size=${this.size}`).then(response => {
+                   this.items = response.data
+               }).catch(error => {
+
+               })
             }
         }
     }

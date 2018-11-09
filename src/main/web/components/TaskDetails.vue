@@ -9,7 +9,7 @@
                 </div>
                 <div class="col-md-6 d-flex">
                     <div class="t-data-item-title">Created At:</div>
-                    <div class="ml-1">{{item.createdAt}}</div>
+                    <div class="ml-1">{{item.created_at}}</div>
                 </div>
                 <div class="col-md-6 d-flex">
                     <div class="t-data-item-title">Response Status:</div>
@@ -22,15 +22,13 @@
                 <div class="col-md-6 d-flex">
                     <div class="t-data-item-title">Response Headers:</div>
                     <div class="ml-1">
-                        <pre class="text-white mb-0"><read-more :max-chars="20"
-                                                                :text="item.http_res_headers"></read-more></pre>
+                        <read-more :max-chars="20" :text="item.http_res_headers"></read-more>
                     </div>
                 </div>
                 <div class="col-md-6 d-flex">
                     <div class="t-data-item-title">Response Body:</div>
                     <div class="ml-1">
-                        <pre class="text-white mb-0"><read-more :max-chars="20"
-                                                                :text="item.http_res_body"></read-more></pre>
+                        <read-more :max-chars="20" :text="item.http_res_body"></read-more>
                     </div>
                 </div>
             </div>
@@ -39,7 +37,8 @@
     </div>
 </template>
 <script>
-    import ReadMore from "./ReadMore.vue";
+    import axios from "axios"
+    import ReadMore from "./ReadMore.vue"
 
     export default {
         components: {ReadMore},
@@ -48,14 +47,31 @@
             id: String
         },
         data: () => ({
-            logs: []
+            logs: [],
+            page: 1,
+            size: 20,
+            enough: true
         }),
-        computed: {
+        mounted() {
+            this.loadMore()
+        },
+        methods: {
             rowBorderClass(log) {
                 if (log.success) {
                     return "border border-success"
                 }
                 return "border border-danger"
+            },
+            loadMore() {
+                if (!this.enough) {
+                    return
+                }
+
+               axios.get(`/api/v1/tasks/${this.id}/logs?page=${this.page}&size=${this.size}`).then(response => {
+                   this.logs = response.data
+               }).catch(error => {
+
+               })
             }
         }
     }
