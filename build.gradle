@@ -108,13 +108,6 @@ tasks.withType(com.hierynomus.gradle.license.tasks.LicenseCheck) {
     it.enabled = false
 }
 
-test {
-    testLogging {
-        exceptionFormat "full"
-    }
-    exclude "**/Oracle*RepositoryTests*"
-}
-
 jacoco {
     toolVersion = '0.7.9'
 }
