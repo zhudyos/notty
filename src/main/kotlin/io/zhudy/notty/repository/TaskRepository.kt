@@ -144,6 +144,7 @@ class TaskRepository(
     fun findLogsById(id: String, pageable: Pageable) = taskCallLogColl.find(eq("task_id", id))
             .skip(pageable.offset)
             .limit(pageable.size)
+            .sort(Document("created_at", -1))
             .toFlux()
             .map(::mapToTaskCallLog)
 

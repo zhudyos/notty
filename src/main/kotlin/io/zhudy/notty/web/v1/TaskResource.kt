@@ -26,11 +26,15 @@ class TaskResource(
             .flatMap(taskService::newTask)
             .flatMap { ok().body(Mono.just(mapOf("id" to it))) }
 
-//    fun invoke(request: ServerRequest)
+    /**
+     * 手动执行。
+     */
+    fun invoke(request: ServerRequest) = ok().body(taskService.invoke(request.pathVariable("id")))
 
     /**
      * 取消通知任务。
      */
+    @Suppress("HasPlatformType")
     fun cancel(request: ServerRequest) = taskService.cancel(
             request.pathVariable("id")
     ).flatMap {

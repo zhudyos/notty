@@ -2,9 +2,12 @@ package io.zhudy.notty.service
 
 import io.lettuce.core.api.StatefulRedisConnection
 import io.lettuce.core.pubsub.StatefulRedisPubSubConnection
+import io.zhudy.kitty.biz.BizCodeException
 import io.zhudy.kitty.domain.Pageable
+import io.zhudy.notty.BizCodes
 import io.zhudy.notty.RedisKeys
 import io.zhudy.notty.domain.Task
+import io.zhudy.notty.domain.TaskStatus
 import io.zhudy.notty.repository.TaskRepository
 import io.zhudy.notty.vo.NewTaskVo
 import org.bson.types.ObjectId
@@ -81,22 +84,32 @@ class TaskService(
      * @param id 任务ID
      */
     @Suppress("HasPlatformType")
-    fun invoke(id: String) = taskRepository.findById(id)
-            .doOnNext {
-                // FIXME 校验任务状态是否符合要求
-            }
-            .flatMap(notificationService::invoke)
+    fun invoke(id: String) = taskRepository.findById(id).flatMap(notificationService::invoke)
 
     /**
      * 取消指定的任务。
      *
      * @param id 任务ID
      */
-    fun cancel(id: String) = taskRepository.cancel(id)
+    @Suppress("HasPlatformType")
+    fun cancel(id: String) = taskRepository.findById(id)
+            .doOnNext {
+                if (it.status != TaskStatus.PROCESSING) {
+                    throw BizCodeException(BizCodes.C_4004,
+                            "当前任务状态为[${it.status}]，只能取消状态为[${TaskStatus.PROCESSING}的任务")
+                }
+            }
+            .flatMap {
+                taskRepository.cancel(id)
+            }
+            .doOnSuccess {
+                redisConn.reactive().zrem(RedisKeys.TASK_QUEUE, id).subscribe()
+            }
 
     /**
      * 根据ID查询指定任务信息。
      */
+    @Suppress("HasPlatformType")
     fun findById(id: String) = taskRepository.findById(id)
 
     /**
