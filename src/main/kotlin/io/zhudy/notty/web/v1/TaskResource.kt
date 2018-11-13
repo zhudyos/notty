@@ -44,7 +44,9 @@ class TaskResource(
     /**
      * 查询任务列表。
      */
-    fun findTasks(request: ServerRequest) = ok().body(taskService.findTasks(request.pageParam()))
+    fun findTasks(request: ServerRequest) = ok().body(
+            taskService.findTasks(request.pageParam())
+    )
 
     /**
      * 根据任务ID查询任务信息。
@@ -56,8 +58,10 @@ class TaskResource(
     /**
      * 根据任务ID查询任务回调日志信息。
      */
-    fun findLogsById(request: ServerRequest) = ok().body(taskService.findLogsById(
-            request.pathVariable("id"),
-            request.pageParam()
-    ))
+    fun findLogsById(request: ServerRequest) = ok().body(
+            taskService.findLogsById(
+                    request.pathVariable("id"),
+                    request.pageParam()
+            )
+    )
 }

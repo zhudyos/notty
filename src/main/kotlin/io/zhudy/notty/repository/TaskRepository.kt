@@ -86,7 +86,7 @@ class TaskRepository(
             ),
             set("status", TaskStatus.CANCEL.status)
     ).toMono().map {
-        if (it.isModifiedCountAvailable) {
+        if (!it.isModifiedCountAvailable) {
             throw BizCodeException(BizCodes.C_4005)
         }
         Unit
