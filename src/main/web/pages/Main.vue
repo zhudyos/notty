@@ -1,6 +1,12 @@
 <template>
     <div class="container">
-        <nav class="navbar navbar-expand-lg bg-dark">
+        <div class="alert alert-success alert-pos" role="alert" v-if="$root.alert.success">
+            {{$root.alert.message}}
+        </div>
+        <div class="alert alert-danger alert-pos" role="alert" v-if="$root.alert.error">
+            {{$root.alert.message}}
+        </div>
+        <nav class="navbar navbar-expand-lg bg-dark logo">
             <a class="navbar-brand text-white" href="#">Notty</a>
             <div class="mr-auto"></div>
             <form class="form-inline mt-2 mt-md-0">
@@ -8,7 +14,6 @@
                 <button class="btn btn-secondary my-2 my-sm-0" type="submit">搜 索</button>
             </form>
         </nav>
-
         <task-list></task-list>
     </div>
 </template>
@@ -24,4 +29,17 @@
 </script>
 <style lang="stylus">
     @import "../task.styl"
+
+    .logo
+        background-image url("../public/img/logo.png")
+        background-repeat no-repeat
+        background-position 10px center
+        background-size 32px
+        padding-left 48px
+
+    .alert-pos
+        position absolute
+        z-index 1000
+        right 10px
+        top 10px
 </style>

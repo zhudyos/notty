@@ -9,11 +9,14 @@
                    :method="item.cb_method"
                    :content-type="item.cb_content_type"
                    :body="item.cb_data"
-                   :last-call-at="item.last_call_at"
-                   :retry-count="item.retry_count"
-                   :retry-max-count="item.retry_max_count"
-                   :status="item.status"
+                   :last-call-at.sync="item.last_call_at"
+                   :retry-count.sync="item.retry_count"
+                   :retry-max-count.sync="item.retry_max_count"
+                   :status.sync="item.status"
         ></task-item>
+        <div v-if="enough" class="d-flex justify-content-center mt-2">
+            <a href="#" @click="loadMore">加载更多...</a>
+        </div>
     </div>
 </template>
 <script>
@@ -38,11 +41,17 @@
                     return
                 }
 
-               axios.get(`/api/v1/tasks?page=${this.page}&size=${this.size}`).then(response => {
-                   this.items = response.data
-               }).catch(error => {
+                axios.get(`/api/v1/tasks?page=${this.page}&size=${this.size}`).then(response => {
+                    let items = response.data
+                    if (items.length < this.size) {
+                        this.enough = false
+                    }
 
-               })
+                    this.items = this.items.concat(items)
+                    this.page = this.page + 1
+                }).catch(error => {
+                    console.error(error)
+                })
             }
         }
     }

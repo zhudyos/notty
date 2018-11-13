@@ -17,7 +17,7 @@
                     </div>
                     <div class="col-md-6 d-flex">
                         <div class="t-data-item-title">Created At:</div>
-                        <div class="ml-1" title="任务提交时间">{{ $dayjs(createdAt).format("YYYY-MM-DD hh:mm:ss") }}</div>
+                        <div class="ml-1" title="任务提交时间">{{ $dayjs(createdAt).format("YYYY-MM-DD HH:mm:ss") }}</div>
                     </div>
                     <div class="col-md-6 d-flex">
                         <div class="t-data-item-title">URL:</div>
@@ -25,7 +25,9 @@
                     </div>
                     <div class="col-md-6 d-flex">
                         <div class="t-data-item-title">Last Call At:</div>
-                        <div class="ml-1" title="最后回调时间" v-if="lastCallAt">{{ $dayjs(lastCallAt).format("YYYY-MM-DD hh:mm:ss") }}</div>
+                        <div class="ml-1" title="最后回调时间" v-if="lastCallAt">
+                            {{ $dayjs(lastCallAt).format("YYYY-MM-DD HH:mm:ss") }}
+                        </div>
                     </div>
                     <template v-if="showDetails">
                         <div class="col-md-6 d-flex">
@@ -63,6 +65,7 @@
                    class="text-white"
                    title="取消任务"
                    v-if="status == 1"
+                   @click="cancel()"
                 ><i class="fas fa-ban"></i></a>
                 <a href="#"
                    class="text-white"
@@ -73,6 +76,7 @@
                    class="text-white"
                    title="手动回调"
                    v-if="status != 8"
+                   @click="manualInvoke()"
                 ><i class="fas fa-sync"></i></a>
                 <a href="#"
                    class="text-white"
@@ -84,6 +88,7 @@
     </div>
 </template>
 <script>
+    import axios from "axios"
     import TaskDetails from "./TaskDetails.vue"
     import ReadMore from "./ReadMore.vue"
 
@@ -137,6 +142,36 @@
         methods: {
             toggleDetails() {
                 this.showDetails = !this.showDetails
+            },
+            manualInvoke() {
+                axios.post(`/api/v1/tasks/calls/${this.id}`).then(() => {
+                    this.$alert.success("手动回调成功")
+                    this.refresh()
+                }).catch(error => {
+                    this.$alert.error("回调失败")
+                    console.error(error)
+                })
+            },
+            cancel() {
+                axios.delete(`/api/v1/tasks/${this.id}`).then(() => {
+                    this.$alert.success("取消成功")
+                    this.refresh()
+                }).catch(error => {
+                    this.$alert.error("取消失败")
+                    console.error(error)
+                })
+            },
+            refresh() {
+                axios.get(`/api/v1/tasks/${this.id}`).then(response => {
+                    let d = response.data
+                    this.$emit("update:last-call-at", d.last_call_at)
+                    this.$emit("update:retry-count", d.retry_count)
+                    this.$emit("update:retry-max-count", d.retry_max_count)
+                    this.$emit("update:status", d.status)
+                }).catch(error => {
+                    this.$alert.error("刷新失败")
+                    console.log(error)
+                })
             }
         }
     }
