@@ -14,6 +14,7 @@ import io.zhudy.notty.domain.TaskCallLog
 import io.zhudy.notty.domain.TaskStatus
 import io.zhudy.notty.repository.NotFoundTaskException
 import io.zhudy.notty.repository.TaskRepository
+import kotlinx.atomicfu.atomic
 import org.slf4j.LoggerFactory
 import org.springframework.http.client.reactive.ReactorClientHttpConnector
 import org.springframework.stereotype.Service
@@ -95,9 +96,15 @@ class NotificationService(
         val conn = redisClient.connect()
         val limitStr = perTaskMax.toString()
         val minDelayMsStr = minDelayMs.toString()
+        val concTaskMax = 5000
+        val currConcTask = atomic(0)
+
+        val lock = ReentrantLock()
+        val cond = lock.newCondition()
+
         while (done) {
             try {
-                val list = conn.reactive().evalsha<String>(
+                val taskIds = conn.sync().evalsha<List<String>>(
                         pullTaskScriptSha,
                         ScriptOutputType.VALUE,
                         arrayOf(RedisKeys.TASK_QUEUE),
@@ -105,12 +112,33 @@ class NotificationService(
                         limitStr,
                         minDelayMsStr
                 )
-                        .flatMap(::findById)
-                        .flatMap(::invoke)
-                        .collectList()
-                        .block()
+                currConcTask.addAndGet(taskIds.size)
 
-                if (list.size < perTaskMax) {
+                taskIds.forEach {
+                    Mono.just(it)
+                            .flatMap(::findById)
+                            .flatMap(::invoke)
+                            .doOnSuccessOrError { _, _ ->
+                                currConcTask.decrementAndGet()
+
+                                // FIXME 锁可继续优化
+                                try {
+                                    lock.lock()
+                                    cond.signal()
+                                } finally {
+                                    lock.unlock()
+                                }
+                            }
+                            .subscribe()
+                }
+
+                while (currConcTask.value >= concTaskMax) {
+                    // FIXME
+                    // 等待处理任务
+                    // wait
+                }
+
+                if (taskIds.size < perTaskMax) {
                     val sv = redisConn.sync().zrangeWithScores(RedisKeys.TASK_QUEUE, 0, 0).firstOrNull()
                     val waitSec = if (sv == null) {
                         30 * 1000
@@ -129,7 +157,7 @@ class NotificationService(
                 log.error("{}", e)
                 if (!conn.isOpen) {
                     try {
-                        TimeUnit.SECONDS.sleep(1)
+                        TimeUnit.MILLISECONDS.sleep(100)
                     } catch (e: Exception) {
                         // ignore
                     }
@@ -139,9 +167,9 @@ class NotificationService(
             }
         }
 
-        conn.close()
         try {
             lock.lock()
+            conn.close()
             shutdownCond.signal()
         } finally {
             lock.unlock()
