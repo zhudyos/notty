@@ -12,7 +12,6 @@ import io.zhudy.notty.domain.CbMethod
 import io.zhudy.notty.domain.Task
 import io.zhudy.notty.domain.TaskCallLog
 import io.zhudy.notty.domain.TaskStatus
-import io.zhudy.notty.repository.NotFoundTaskException
 import io.zhudy.notty.repository.TaskRepository
 import kotlinx.atomicfu.atomic
 import org.slf4j.LoggerFactory
@@ -55,9 +54,9 @@ class NotificationService(
             ))
             .build()
 
-    private val lock = ReentrantLock()
-    private val taskCond = lock.newCondition()
-    private val shutdownCond = lock.newCondition()
+    private val taskLock = ReentrantLock()
+    private val taskCond = taskLock.newCondition()
+    private val shutdownCond = taskLock.newCondition()
 
     private val perTaskMax = Runtime.getRuntime().availableProcessors()
     private val minDelayMs = 5 * 1000
@@ -84,17 +83,17 @@ class NotificationService(
     fun destroy() {
         done = false
         try {
-            lock.lock()
+            taskLock.lock()
             taskCond.signal()
             shutdownCond.await()
         } finally {
-            lock.unlock()
+            taskLock.unlock()
         }
     }
 
     private fun execute() {
         val conn = redisClient.connect()
-        val limitStr = perTaskMax.toString()
+        val comms = conn.sync()
         val minDelayMsStr = minDelayMs.toString()
         val concTaskMax = 5000
         val currConcTask = atomic(0)
@@ -102,14 +101,15 @@ class NotificationService(
         val lock = ReentrantLock()
         val cond = lock.newCondition()
 
+        var limit = perTaskMax
         while (done) {
             try {
-                val taskIds = conn.sync().evalsha<List<String>>(
+                val taskIds = comms.evalsha<List<String>>(
                         pullTaskScriptSha,
                         ScriptOutputType.VALUE,
                         arrayOf(RedisKeys.TASK_QUEUE),
                         System.currentTimeMillis().toString(),
-                        limitStr,
+                        limit.toString(),
                         minDelayMsStr
                 )
                 currConcTask.addAndGet(taskIds.size)
@@ -132,26 +132,38 @@ class NotificationService(
                             .subscribe()
                 }
 
+                /*
+                 * 如果当前处理的任务数已超过最大任务处理数，则等待部分任务处理完成，在接受新的任务。
+                 * 保证同时并发的任务在可控范围之内。
+                 */
                 while (currConcTask.value >= concTaskMax) {
-                    // FIXME
-                    // 等待处理任务
-                    // wait
-                }
-
-                if (taskIds.size < perTaskMax) {
-                    val sv = redisConn.sync().zrangeWithScores(RedisKeys.TASK_QUEUE, 0, 0).firstOrNull()
-                    val waitSec = if (sv == null) {
-                        30 * 1000
-                    } else {
-                        (sv.score - System.currentTimeMillis()).toLong()
-                    }
-
                     try {
                         lock.lock()
-                        taskCond.await(waitSec, TimeUnit.MILLISECONDS)
+                        cond.await()
+                    } catch (e: InterruptedException) {
+                        // ignore
                     } finally {
                         lock.unlock()
                     }
+                }
+
+                if (taskIds.size < limit) {
+                    val sv = comms.zrangeWithScores(RedisKeys.TASK_QUEUE, 0, 0).firstOrNull()
+                    val waitSec = if (sv == null) 30000L else (sv.score - System.currentTimeMillis()).toLong()
+
+                    try {
+                        taskLock.lock()
+                        taskCond.await(waitSec, TimeUnit.MILLISECONDS)
+                    } catch (e: InterruptedException) {
+                        // ignore
+                    } finally {
+                        taskLock.unlock()
+                    }
+                }
+
+                limit = concTaskMax - currConcTask.value
+                if (limit > perTaskMax) {
+                    limit = perTaskMax
                 }
             } catch (e: RedisException) {
                 log.error("{}", e)
@@ -168,19 +180,15 @@ class NotificationService(
         }
 
         try {
-            lock.lock()
+            taskLock.lock()
             conn.close()
             shutdownCond.signal()
         } finally {
-            lock.unlock()
+            taskLock.unlock()
         }
     }
 
-    // 优先查询从库，如果从库没有查询到则去主库查询，解决新任务主从同步因时间差查询不到任务的场景
     private fun findById(id: String) = taskRepository.findById(id)
-            .onErrorResume(NotFoundTaskException::class.java) {
-                taskRepository.findById4Primary(id)
-            }
 
     /**
      * 执行回调任务。
@@ -265,10 +273,10 @@ class NotificationService(
             override fun message(channel: String, message: String) {
                 if (channel == NEW_TASK_CHANNEL) {
                     try {
-                        lock.lock()
+                        taskLock.lock()
                         taskCond.signal()
                     } finally {
-                        lock.unlock()
+                        taskLock.unlock()
                     }
                 }
             }

@@ -1,6 +1,5 @@
 package io.zhudy.notty.repository
 
-import com.mongodb.ReadPreference
 import com.mongodb.client.model.Filters.and
 import com.mongodb.client.model.Filters.eq
 import com.mongodb.client.model.IndexModel
@@ -55,22 +54,20 @@ class TaskRepository(
      * 保存新任务。
      */
     fun insert(task: Task): Mono<String> {
-        val doc = Document(
-                mapOf(
-                        "_id" to task.id,
-                        "service_name" to task.serviceName,
-                        "sid" to task.sid,
-                        "cb_url" to task.cbUrl,
-                        "cb_method" to task.cbMethod.name,
-                        "cb_content_type" to task.cbContentType,
-                        "cb_data" to task.cbData,
-                        "cb_delay" to task.cbDelay,
-                        "retry_count" to task.retryCount,
-                        "retry_max_count" to task.retryMaxCount,
-                        "status" to TaskStatus.PROCESSING.status,
-                        "created_at" to System.currentTimeMillis()
-                )
-        )
+        val doc = Document(mapOf(
+                "_id" to task.id,
+                "service_name" to task.serviceName,
+                "sid" to task.sid,
+                "cb_url" to task.cbUrl,
+                "cb_method" to task.cbMethod.name,
+                "cb_content_type" to task.cbContentType,
+                "cb_data" to task.cbData,
+                "cb_delay" to task.cbDelay,
+                "retry_count" to task.retryCount,
+                "retry_max_count" to task.retryMaxCount,
+                "status" to TaskStatus.PROCESSING.status,
+                "created_at" to System.currentTimeMillis()
+        ))
 
         return taskColl.insertOne(doc).toMono().map { task.id }
     }
@@ -99,14 +96,6 @@ class TaskRepository(
      */
     @Suppress("HasPlatformType")
     fun findById(id: String) = findById(taskColl, id)
-
-    /**
-     * 在主库根据ID查询任务。
-     *
-     * @throws NotFoundTaskException 指定ID的任务不存在时
-     */
-    @Suppress("HasPlatformType")
-    fun findById4Primary(id: String) = findById(taskColl.withReadPreference(ReadPreference.primary()), id)
 
     /**
      * 失败的通知任务。

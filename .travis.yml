@@ -1,14 +1,12 @@
 sudo: required
 language: java
-jdk: oraclejdk8
+jdk:
+  - openjdk11
 dist: trusty
 
 services:
   - mongodb
   - docker
-
-addons:
-  postgresql: "9.5"
 
 before_cache:
   - rm -f  $HOME/.gradle/caches/modules-2/modules-2.lock
@@ -29,7 +27,7 @@ script:
 after_success:
   - if [ ! -z "$TRAVIS_TAG" ]; then
       docker login -u "$DOCKER_USERNAME" -p "$DOCKER_PASSWORD";
-      docker push zhudyos/duic;
+      docker push zhudyos/notty;
 
       ./gradlew copyRelease;
     fi
