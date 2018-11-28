@@ -6,6 +6,7 @@ dist: trusty
 
 services:
   - mongodb
+  - redis-server
   - docker
 
 before_cache:
@@ -18,6 +19,9 @@ cache:
     - $HOME/.gradle/wrapper/
     - .gradle/
     - node_modules/
+
+before_install:
+  - chmod +x gradlew
 
 install: true
 
