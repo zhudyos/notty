@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <springProperty name="slowCbLogDir" source="logging.slow-cb-log.dir" defaultValue="/var/log/notty"/>
+
+    <appender name="console" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <charset>UTF-8</charset>
+            <pattern>%d [%t] [%-5level] %logger{36}.%M\(%file:%line\) - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <appender name="slow-cb-log" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${slowCbLogDir}/slow-cb.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${slowCbLogDir}/slow-cb-%d{yyyyMMdd}.%i.log</fileNamePattern>
+            <maxFileSize>512MB</maxFileSize>
+            <maxHistory>30</maxHistory>
+        </rollingPolicy>
+        <encoder>
+            <charset>UTF-8</charset>
+            <pattern>%d | %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <logger name="slow.cb.log" level="info" additivity="false">
+        <appender-ref ref="slow-cb-log"/>
+    </logger>
+    <logger name="org.mongodb.driver" level="info"/>
+    <logger name="org.springframework" level="info"/>
+    <logger name="io.netty" level="info"/>
+
+    <root>
+        <appender-ref ref="console"/>
+    </root>
+</configuration>

@@ -104,6 +104,7 @@ class TaskRepository(
      * @param status 更新的任务状态
      * @param taskCallLog 回调日志
      */
+    @Suppress("HasPlatformType")
     fun fail(id: String, status: TaskStatus, taskCallLog: TaskCallLog) = updateTask(id, status, taskCallLog)
 
     /**
@@ -113,6 +114,7 @@ class TaskRepository(
      * @param status 更新的任务状态
      * @param taskCallLog 回调日志
      */
+    @Suppress("HasPlatformType")
     fun succeed(id: String, status: TaskStatus, taskCallLog: TaskCallLog) = updateTask(id, status, taskCallLog)
 
     /**
@@ -144,21 +146,17 @@ class TaskRepository(
                     set("last_call_at", System.currentTimeMillis()),
                     inc("retry_count", 1)
             )
-    ).toMono().flatMap {
-        taskCallLogColl.insertOne(
-                Document(mapOf(
-                        "_id" to ObjectId().toString(),
-                        "task_id" to taskCallLog.taskId,
-                        "n" to taskCallLog.n,
-                        "success" to taskCallLog.success,
-                        "reason" to taskCallLog.reason,
-                        "http_res_status" to taskCallLog.httpResStatus,
-                        "http_res_headers" to taskCallLog.httpResHeaders,
-                        "http_res_body" to taskCallLog.httpResBody,
-                        "created_at" to taskCallLog.createdAt
-                ))
-        ).toMono()
-    }!!
+    ).toMono().zipWith(taskCallLogColl.insertOne(Document(mapOf(
+            "_id" to ObjectId().toString(),
+            "task_id" to taskCallLog.taskId,
+            "n" to taskCallLog.n,
+            "success" to taskCallLog.success,
+            "reason" to taskCallLog.reason,
+            "http_res_status" to taskCallLog.httpResStatus,
+            "http_res_headers" to taskCallLog.httpResHeaders,
+            "http_res_body" to taskCallLog.httpResBody,
+            "created_at" to taskCallLog.createdAt
+    ))).toMono())
 
     private fun findById(coll: MongoCollection<Document>, id: String) = coll.find(eq("_id", id))
             .first()

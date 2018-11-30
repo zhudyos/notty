@@ -7,6 +7,7 @@ import io.lettuce.core.api.StatefulRedisConnection
 import io.lettuce.core.pubsub.RedisPubSubAdapter
 import io.lettuce.core.pubsub.StatefulRedisPubSubConnection
 import io.netty.channel.ChannelOption
+import io.netty.handler.timeout.ReadTimeoutHandler
 import io.zhudy.notty.RedisKeys
 import io.zhudy.notty.domain.CbMethod
 import io.zhudy.notty.domain.Task
@@ -41,24 +42,29 @@ class NotificationService(
         private val taskRepository: TaskRepository
 ) {
     private val log = LoggerFactory.getLogger(NotificationService::class.java)
+    private val slowLog = LoggerFactory.getLogger("slow.log")
 
     companion object {
         const val NEW_TASK_CHANNEL = "notty:new:task"
         const val TASK_MIN_DELAY_MS: Long = 5 * 1000
     }
 
-    private val webClient = WebClient.builder()
-            .clientConnector(ReactorClientHttpConnector(
-                    HttpClient.from(TcpClient.create()
-                            .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 3000))
-            ))
-            .build()
+    private val webClient = WebClient.builder().clientConnector(ReactorClientHttpConnector(HttpClient.from(
+            TcpClient.create().option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 3000)
+                    .doOnConnected {
+                        it.addHandlerLast(ReadTimeoutHandler(5000, TimeUnit.MILLISECONDS))
+                    }
+    ))).build()
+
+    // FIXME 缓慢的回调。
+    private var slowms = 1000L
 
     private val taskLock = ReentrantLock()
     private val taskCond = taskLock.newCondition()
     private val shutdownCond = taskLock.newCondition()
 
     private val perTaskMax = Runtime.getRuntime().availableProcessors()
+    // FIXME 时间差需要调整并增加。
     private val minDelayMs = 5 * 1000
     private var done = true
 
@@ -98,38 +104,43 @@ class NotificationService(
         val concTaskMax = 5000
         val currConcTask = atomic(0)
 
-        val lock = ReentrantLock()
-        val cond = lock.newCondition()
+        val preTaskLock = ReentrantLock()
+        val preTaskCond = preTaskLock.newCondition()
 
         var limit = perTaskMax
         while (done) {
             try {
                 val taskIds = comms.evalsha<List<String>>(
                         pullTaskScriptSha,
-                        ScriptOutputType.VALUE,
+                        ScriptOutputType.MULTI,
                         arrayOf(RedisKeys.TASK_QUEUE),
                         System.currentTimeMillis().toString(),
                         limit.toString(),
                         minDelayMsStr
-                )
+                ) ?: emptyList()
+
                 currConcTask.addAndGet(taskIds.size)
 
                 taskIds.forEach {
-                    Mono.just(it)
-                            .flatMap(::findById)
-                            .flatMap(::invoke)
-                            .doOnSuccessOrError { _, _ ->
-                                currConcTask.decrementAndGet()
+                    // FIXME 需要优化实现
+                    val beginMs = System.currentTimeMillis()
+                    findById(it).doOnSuccess { task ->
+                        val endMs = System.currentTimeMillis()
+                        val timeElapsed = endMs - beginMs
+                        if (timeElapsed > slowms) {
+                            slowLog.info("taskId: {}, url: {} {}ms", task.id, task.cbUrl, timeElapsed)
+                        }
+                    }.flatMap(::invoke).doOnSuccessOrError { _, _ ->
+                        currConcTask.decrementAndGet()
 
-                                // FIXME 锁可继续优化
-                                try {
-                                    lock.lock()
-                                    cond.signal()
-                                } finally {
-                                    lock.unlock()
-                                }
-                            }
-                            .subscribe()
+                        // FIXME 锁可继续优化
+                        try {
+                            preTaskLock.lock()
+                            preTaskCond.signal()
+                        } finally {
+                            preTaskLock.unlock()
+                        }
+                    }.subscribe()
                 }
 
                 /*
@@ -138,12 +149,12 @@ class NotificationService(
                  */
                 while (currConcTask.value >= concTaskMax) {
                     try {
-                        lock.lock()
-                        cond.await()
+                        preTaskLock.lock()
+                        preTaskCond.await()
                     } catch (e: InterruptedException) {
                         // ignore
                     } finally {
-                        lock.unlock()
+                        preTaskLock.unlock()
                     }
                 }
 
@@ -153,7 +164,7 @@ class NotificationService(
 
                     try {
                         taskLock.lock()
-                        taskCond.await(waitSec, TimeUnit.MILLISECONDS)
+                        taskCond.await(uWaitSec(waitSec), TimeUnit.MILLISECONDS)
                     } catch (e: InterruptedException) {
                         // ignore
                     } finally {
@@ -251,7 +262,7 @@ class NotificationService(
                     if (log.success || log.n >= task.retryMaxCount) {
                         comm.zrem(RedisKeys.TASK_QUEUE, task.id).subscribe()
                     } else {
-                        // 增加延迟时间
+                        // FIXME 增加或减少延迟时间
                         val nextMs = log.n * log.n * 1000L
                         if (nextMs > minDelayMs) {
                             comm.zaddincr(
@@ -283,4 +294,6 @@ class NotificationService(
         })
         c.subscribe(NEW_TASK_CHANNEL).subscribe()
     }
+
+    private fun uWaitSec(ws: Long) = if (ws >= 0) ws else -ws
 }

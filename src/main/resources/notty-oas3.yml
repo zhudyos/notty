@@ -1,4 +1,4 @@
-openapi: 3.0.0
+openapi: 3.0.2
 servers:
   - description: Local Notty Server
     url: http://127.0.0.1:7779/api/v1
@@ -64,7 +64,7 @@ paths:
               example:
                 service_name: hello
                 sid: 5d41402abc4b2a76b9719d911017c592
-                cb_url: https://cb.task/
+                cb_url: https://reqres.in/api/users
                 cb_method: POST
                 cb_data:
                   field1: first
@@ -205,17 +205,17 @@ components:
       name: page
       description: 页码
       required: true
-      default: 1
       schema:
         type: integer
+        default: 1
     SizeQuery:
       in: query
       name: size
       description: 记录数
       required: true
-      default: 30
       schema:
         type: integer
+        default: 30
   schemas:
     ErrorRes:
       properties:
