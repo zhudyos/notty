@@ -1,7 +1,6 @@
 package io.zhudy.notty.service
 
 import io.lettuce.core.api.StatefulRedisConnection
-import io.lettuce.core.pubsub.StatefulRedisPubSubConnection
 import io.zhudy.kitty.biz.BizCodeException
 import io.zhudy.kitty.domain.Pageable
 import io.zhudy.notty.BizCodes
@@ -22,7 +21,6 @@ import reactor.core.publisher.Mono
 class TaskService(
         private val taskRepository: TaskRepository,
         private val redisConn: StatefulRedisConnection<String, String>,
-        private val redisPub: StatefulRedisPubSubConnection<String, String>,
         private val notificationService: NotificationService
 ) {
 
@@ -71,9 +69,6 @@ class TaskService(
                                 }
                                 .subscribe()
                     }
-                }
-                .flatMap {
-                    redisPub.reactive().publish(NotificationService.NEW_TASK_CHANNEL, id)
                 }
                 .map { id }
     }

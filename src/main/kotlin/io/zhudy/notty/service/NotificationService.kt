@@ -4,8 +4,6 @@ import io.lettuce.core.RedisClient
 import io.lettuce.core.RedisException
 import io.lettuce.core.ScriptOutputType
 import io.lettuce.core.api.StatefulRedisConnection
-import io.lettuce.core.pubsub.RedisPubSubAdapter
-import io.lettuce.core.pubsub.StatefulRedisPubSubConnection
 import io.netty.channel.ChannelOption
 import io.netty.handler.timeout.ReadTimeoutHandler
 import io.zhudy.notty.RedisKeys
@@ -18,12 +16,14 @@ import kotlinx.atomicfu.atomic
 import org.slf4j.LoggerFactory
 import org.springframework.http.client.reactive.ReactorClientHttpConnector
 import org.springframework.stereotype.Service
+import org.springframework.web.reactive.function.client.ClientResponse
 import org.springframework.web.reactive.function.client.WebClient
 import org.springframework.web.reactive.function.client.body
 import reactor.core.publisher.Mono
 import reactor.core.publisher.toMono
 import reactor.netty.http.client.HttpClient
 import reactor.netty.tcp.TcpClient
+import reactor.util.function.Tuple2
 import java.net.UnknownHostException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.locks.ReentrantLock
@@ -38,7 +38,6 @@ import kotlin.concurrent.thread
 class NotificationService(
         private val redisClient: RedisClient,
         private val redisConn: StatefulRedisConnection<String, String>,
-        private val redisSub: StatefulRedisPubSubConnection<String, String>,
         private val taskRepository: TaskRepository
 ) {
     private val log = LoggerFactory.getLogger(NotificationService::class.java)
@@ -63,7 +62,7 @@ class NotificationService(
     private val taskCond = taskLock.newCondition()
     private val shutdownCond = taskLock.newCondition()
 
-    private val perTaskMax = Runtime.getRuntime().availableProcessors()
+    private val perPullTaskMax = Runtime.getRuntime().availableProcessors()
     // FIXME 时间差需要调整并增加。
     private val minDelayMs = 5 * 1000
     private var done = true
@@ -81,8 +80,11 @@ class NotificationService(
 
     @PostConstruct
     fun init() {
-        thread(start = true, name = "notification-service", block = ::execute)
-        listenNewTask()
+        thread(
+                start = true,
+                name = "notification-service",
+                block = ::execute
+        )
     }
 
     @PreDestroy
@@ -99,27 +101,37 @@ class NotificationService(
 
     private fun execute() {
         val conn = redisClient.connect()
-        val comms = conn.sync()
+        val commands = conn.sync()
+
+        val limitStr = perPullTaskMax.toString()
         val minDelayMsStr = minDelayMs.toString()
+
         val concTaskMax = 5000
-        val currConcTask = atomic(0)
+        val concTaskCounter = atomic(0)
 
         val preTaskLock = ReentrantLock()
         val preTaskCond = preTaskLock.newCondition()
 
-        var limit = perTaskMax
         while (done) {
             try {
-                val taskIds = comms.evalsha<List<String>>(
+                val taskIds = commands.evalsha<List<String>>(
                         pullTaskScriptSha,
                         ScriptOutputType.MULTI,
                         arrayOf(RedisKeys.TASK_QUEUE),
                         System.currentTimeMillis().toString(),
-                        limit.toString(),
+                        limitStr,
                         minDelayMsStr
-                ) ?: emptyList()
+                )
 
-                currConcTask.addAndGet(taskIds.size)
+                if (taskIds.isEmpty()) {
+                    try {
+                        TimeUnit.SECONDS.sleep(1)
+                    } catch (e: InterruptedException) {
+                        // ignore
+                    }
+                }
+
+                concTaskCounter.addAndGet(taskIds.size)
 
                 taskIds.forEach {
                     // FIXME 需要优化实现
@@ -130,8 +142,8 @@ class NotificationService(
                         if (timeElapsed > slowms) {
                             slowLog.info("taskId: {}, url: {} {}ms", task.id, task.cbUrl, timeElapsed)
                         }
-                    }.flatMap(::invoke).doOnSuccessOrError { _, _ ->
-                        currConcTask.decrementAndGet()
+                    }.flatMap(::invoke).doFinally {
+                        concTaskCounter.decrementAndGet()
 
                         // FIXME 锁可继续优化
                         try {
@@ -147,7 +159,7 @@ class NotificationService(
                  * 如果当前处理的任务数已超过最大任务处理数，则等待部分任务处理完成，在接受新的任务。
                  * 保证同时并发的任务在可控范围之内。
                  */
-                while (currConcTask.value >= concTaskMax) {
+                while (concTaskCounter.value >= concTaskMax) {
                     try {
                         preTaskLock.lock()
                         preTaskCond.await()
@@ -158,23 +170,12 @@ class NotificationService(
                     }
                 }
 
-                if (taskIds.size < limit) {
-                    val sv = comms.zrangeWithScores(RedisKeys.TASK_QUEUE, 0, 0).firstOrNull()
-                    val waitSec = if (sv == null) 30000L else (sv.score - System.currentTimeMillis()).toLong()
-
+                if (taskIds.size < perPullTaskMax) {
                     try {
-                        taskLock.lock()
-                        taskCond.await(uWaitSec(waitSec), TimeUnit.MILLISECONDS)
+                        TimeUnit.SECONDS.sleep(1)
                     } catch (e: InterruptedException) {
                         // ignore
-                    } finally {
-                        taskLock.unlock()
                     }
-                }
-
-                limit = concTaskMax - currConcTask.value
-                if (limit > perTaskMax) {
-                    limit = perTaskMax
                 }
             } catch (e: RedisException) {
                 log.error("{}", e)
@@ -225,38 +226,9 @@ class NotificationService(
                 .header("x-request-id", task.id)
                 .exchange()
                 .zipWhen { it.bodyToMono(String::class.java) }
-                .flatMap {
-                    val res = it.t1
-                    val status = res.statusCode()
-                    val log = TaskCallLog(
-                            taskId = task.id,
-                            n = task.retryCount + 1,
-                            httpResHeaders = res.headers().asHttpHeaders().toString(),
-                            httpResStatus = status.value(),
-                            httpResBody = it.t2 ?: "",
-                            success = status.is2xxSuccessful,
-                            createdAt = System.currentTimeMillis()
-                    )
-
-                    taskRepository.succeed(task.id, TaskStatus.SUCCEEDED, log).map { log }
-                }
-                .onErrorResume { t ->
-                    val reason = if (t is UnknownHostException) {
-                        t.message
-                    } else {
-                        t.message
-                    } ?: t.javaClass.canonicalName
-
-                    val log = TaskCallLog(
-                            taskId = task.id,
-                            n = task.retryCount + 1,
-                            success = false,
-                            reason = reason,
-                            createdAt = System.currentTimeMillis()
-                    )
-
-                    taskRepository.fail(task.id, TaskStatus.FAILED, log).map { log }
-                }.map { log ->
+                .flatMap { cbSuccessMap(task, it) }
+                .onErrorResume { cbErrorResume(task, it) }
+                .doOnNext { log ->
                     val comm = redisConn.reactive()
                     // 归档任务不在通知
                     if (log.success || log.n >= task.retryMaxCount) {
@@ -272,28 +244,39 @@ class NotificationService(
                             ).subscribe()
                         }
                     }
-
-                    log
                 }
     }
 
-    private fun listenNewTask() {
-        val c = redisSub.reactive()
-        redisSub.addListener(object : RedisPubSubAdapter<String, String>() {
-
-            override fun message(channel: String, message: String) {
-                if (channel == NEW_TASK_CHANNEL) {
-                    try {
-                        taskLock.lock()
-                        taskCond.signal()
-                    } finally {
-                        taskLock.unlock()
-                    }
-                }
-            }
-        })
-        c.subscribe(NEW_TASK_CHANNEL).subscribe()
+    private fun cbSuccessMap(task: Task, t: Tuple2<ClientResponse, String>): Mono<TaskCallLog> {
+        val res = t.t1
+        val status = res.statusCode()
+        val log = TaskCallLog(
+                taskId = task.id,
+                n = task.retryCount + 1,
+                httpResHeaders = res.headers().asHttpHeaders().toString(),
+                httpResStatus = status.value(),
+                httpResBody = t.t2 ?: "",
+                success = status.is2xxSuccessful,
+                createdAt = System.currentTimeMillis()
+        )
+        return taskRepository.succeed(task.id, TaskStatus.SUCCEEDED, log).map { log }
     }
 
-    private fun uWaitSec(ws: Long) = if (ws >= 0) ws else -ws
+    private fun cbErrorResume(task: Task, t: Throwable): Mono<TaskCallLog> {
+        val reason = if (t is UnknownHostException) {
+            t.message
+        } else {
+            t.message
+        } ?: t.javaClass.canonicalName
+
+        val log = TaskCallLog(
+                taskId = task.id,
+                n = task.retryCount + 1,
+                success = false,
+                reason = reason,
+                createdAt = System.currentTimeMillis()
+        )
+
+        return taskRepository.fail(task.id, TaskStatus.FAILED, log).map { log }
+    }
 }
