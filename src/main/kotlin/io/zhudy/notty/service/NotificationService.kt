@@ -50,9 +50,9 @@ class NotificationService(
     }
 
     private val webClient = WebClient.builder().clientConnector(ReactorClientHttpConnector(HttpClient.from(
-            TcpClient.create().option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 3000)
+            TcpClient.create().option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 5000)
                     .doOnConnected {
-                        it.addHandlerLast(ReadTimeoutHandler(5000, TimeUnit.MILLISECONDS))
+                        it.addHandlerLast(ReadTimeoutHandler(15000, TimeUnit.MILLISECONDS))
                     }
     ))).build()
 
