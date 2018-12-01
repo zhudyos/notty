@@ -21,6 +21,7 @@ import org.springframework.web.reactive.function.client.WebClient
 import org.springframework.web.reactive.function.client.body
 import reactor.core.publisher.Mono
 import reactor.core.publisher.toMono
+import reactor.core.scheduler.Schedulers
 import reactor.netty.http.client.HttpClient
 import reactor.netty.tcp.TcpClient
 import reactor.util.function.Tuple2
@@ -122,37 +123,34 @@ class NotificationService(
                         limitStr,
                         minDelayMsStr
                 )
-
-                if (taskIds.isEmpty()) {
-                    try {
-                        TimeUnit.SECONDS.sleep(1)
-                    } catch (e: InterruptedException) {
-                        // ignore
-                    }
-                }
-
                 concTaskCounter.addAndGet(taskIds.size)
 
                 taskIds.forEach {
-                    // FIXME 需要优化实现
-                    val beginMs = System.currentTimeMillis()
-                    findById(it).doOnSuccess { task ->
-                        val endMs = System.currentTimeMillis()
-                        val timeElapsed = endMs - beginMs
-                        if (timeElapsed > slowms) {
-                            slowLog.info("taskId: {}, url: {} {}ms", task.id, task.cbUrl, timeElapsed)
-                        }
-                    }.flatMap(::invoke).doFinally {
-                        concTaskCounter.decrementAndGet()
 
-                        // FIXME 锁可继续优化
-                        try {
-                            preTaskLock.lock()
-                            preTaskCond.signal()
-                        } finally {
-                            preTaskLock.unlock()
-                        }
-                    }.subscribe()
+                    // FIXME 需要优化实现
+                    val startMs = System.currentTimeMillis()
+                    findById(it)
+                            .doOnSuccess { task ->
+                                val endMs = System.currentTimeMillis()
+                                val elapsedMs = endMs - startMs
+                                if (elapsedMs >= slowms) {
+                                    slowLog.info("taskId: {}, url: {} {}ms", task.id, task.cbUrl, elapsedMs)
+                                }
+                            }
+                            .flatMap(::invoke)
+                            .doFinally {
+                                concTaskCounter.decrementAndGet()
+
+                                // FIXME 锁可继续优化
+                                try {
+                                    preTaskLock.lock()
+                                    preTaskCond.signal()
+                                } finally {
+                                    preTaskLock.unlock()
+                                }
+                            }
+                            .subscribeOn(Schedulers.parallel())
+                            .subscribe()
                 }
 
                 /*
@@ -179,9 +177,10 @@ class NotificationService(
                 }
             } catch (e: RedisException) {
                 log.error("{}", e)
+
                 if (!conn.isOpen) {
                     try {
-                        TimeUnit.MILLISECONDS.sleep(100)
+                        TimeUnit.SECONDS.sleep(1)
                     } catch (e: Exception) {
                         // ignore
                     }
